@@ -17,7 +17,11 @@ function productionHead(supabaseUrl: string | undefined): Plugin {
     apply: 'build',
     transformIndexHtml() {
       if (!supabaseUrl) {
-        throw new Error('VITE_SUPABASE_URL must be set for production builds.')
+        throw new Error(
+          'VITE_SUPABASE_URL must be set for production builds. ' +
+            'Locally: .env.local. Cloudflare Workers: Settings → Build → Variables and secrets. ' +
+            'Cloudflare Pages: Settings → Variables and Secrets (Production and Preview).',
+        )
       }
       const api = new URL(supabaseUrl)
       const realtime = `${api.protocol === 'https:' ? 'wss:' : 'ws:'}//${api.host}`
