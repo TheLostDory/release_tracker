@@ -174,8 +174,9 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
-# Disabled: this is an internal tool. Invite users from the Supabase dashboard.
-enable_signup = false
+# Open sign-up: access is per project, so a new account only sees projects it
+# creates or is invited to.
+enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts

@@ -47,13 +47,15 @@ services:
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-release-tracker-local-db-password}@db:5432/postgres
       GOTRUE_SITE_URL: http://localhost:${APP_PORT:-8800}
       GOTRUE_URI_ALLOW_LIST: ''
-      # Internal tool: no self sign-up. Add users with `docker compose run --rm migrate create-user …`.
-      GOTRUE_DISABLE_SIGNUP: 'true'
+      # Open sign-up: new accounts only see projects they create or are invited to.
+      GOTRUE_DISABLE_SIGNUP: 'false'
       GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
       GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: 'false'
       GOTRUE_EXTERNAL_PHONE_ENABLED: 'false'
       GOTRUE_MAILER_AUTOCONFIRM: 'true'
       GOTRUE_PASSWORD_MIN_LENGTH: 10
+      # Letters and digits required (same as hosted `password_requirements = "letters_digits"`).
+      GOTRUE_PASSWORD_REQUIRED_CHARACTERS: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789'
       GOTRUE_JWT_SECRET: ${JWT_SECRET:-release-tracker-local-only-jwt-secret-not-for-production}
       GOTRUE_JWT_EXP: 3600
       GOTRUE_JWT_AUD: authenticated

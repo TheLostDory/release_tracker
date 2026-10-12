@@ -67,8 +67,8 @@ Everything lives in a **project** (switcher at the top of the sidebar). Each pro
 | Owner | + delete the project, manage owners (a project always keeps one) |
 
 Invite from **Settings → Project → Invite people** (admins and owners):
-- **By email**: existing users are added immediately; others join automatically when their account is created (`create-user` locally, the dashboard on hosted Supabase).
-- **By link**: a role and an expiry (1–30 days). Anyone signed in who opens it joins. Only a SHA-256 hash is stored; revoke anytime.
+- **By email**: existing users are added immediately; others join automatically when they sign up (or their account is created by an admin).
+- **By link**: a role and an expiry (1–30 days). Anyone who opens it joins after signing in, or after creating an account (they're brought back to the invite). Only a SHA-256 hash is stored; revoke anytime.
 
 Roles are enforced in Postgres (RLS + the membership functions in `supabase/migrations/20261013000000_projects.sql`); the UI only hides what you can't do.
 
@@ -108,7 +108,7 @@ Ports are bound to `127.0.0.1` only: app on `8800` (`APP_PORT`), Postgres on `54
 
 **Secrets.** The defaults in `docker-compose.yml` are for local use only. To use your own, run `node docker/generate-keys.mjs`, then put `JWT_SECRET`, `ANON_KEY` and a `POSTGRES_PASSWORD` in a `.env` file next to `docker-compose.yml` (it is git-ignored) **before the first start**. Changing `POSTGRES_PASSWORD` later requires `docker compose down -v`.
 
-Not included locally: the Supabase Studio dashboard and email sending. Users are added with `create-user` above and are confirmed immediately.
+Not included locally: the Supabase Studio dashboard and email sending. People create accounts on the **Create an account** page (confirmed immediately, since there is no email), or you add them with `create-user` above.
 
 ## Deploying (Cloudflare Pages, free)
 
@@ -186,7 +186,7 @@ location /assets/ {
 
 ## Security checklist
 
-- **Sign-ups disabled.** Accounts are created by an admin; access to data is per project and per role (see *Projects, roles and invitations*), enforced by RLS. In the Supabase dashboard go to Authentication → Sign In / Providers, turn off "Allow new users to sign up", and invite users from Authentication → Users. Already set for local dev in `config.toml`.
+- **Open sign-up** (`/signup`). Safe because access is per project: a new account only sees projects it creates or is invited to. Passwords need 10+ characters with letters and digits. On hosted Supabase, sign-up must also be enabled in Authentication → Sign In / Providers (keep email confirmation on there).
 - **Passwords:** minimum 10 characters, letters + digits, leaked-password protection on, "secure password change" on.
 - **Never ship the service-role key** to the browser. Only the publishable key goes in `VITE_*` variables; row-level security protects the data.
 - **RLS is enabled on every table.** There are no DELETE policies and the activity log is append-only.

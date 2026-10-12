@@ -16,6 +16,25 @@ export async function signInWithPassword({ email, password }: Credentials): Prom
   if (error) throw error
 }
 
+export interface SignUpInput extends Credentials {
+  name: string
+}
+
+/**
+ * Creates an account. Returns 'signed-in' when the server confirms
+ * immediately, or 'confirm-email' when it sent a confirmation link first.
+ */
+export async function signUp({ email, password, name }: SignUpInput): Promise<'signed-in' | 'confirm-email'> {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    // The profile's display name is taken from this (handle_new_user()).
+    options: { data: { name }, emailRedirectTo: window.location.origin },
+  })
+  if (error) throw error
+  return data.session ? 'signed-in' : 'confirm-email'
+}
+
 export async function signOut(): Promise<void> {
   const { error } = await supabase.auth.signOut()
   if (error) throw error

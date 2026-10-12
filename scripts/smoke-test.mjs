@@ -53,8 +53,12 @@ const { error: anonSearch } = await anon.rpc('search_releases', { q: 'RC' })
 check('search refused', !!anonSearch)
 const { error: anonCreate } = await anon.rpc('create_project', { p_name: 'nope' })
 check('cannot create projects', !!anonCreate)
-const { error: signupErr } = await anon.auth.signUp({ email: `intruder-${Date.now()}@example.com`, password: 'Abcdefgh12345' })
-check('self sign-up disabled', !!signupErr, 'sign-up succeeded')
+// Sign-up is open. Probe with an existing email so no account is created:
+// an enabled server answers "already registered", a disabled one "not allowed".
+const { error: signupErr } = await anon.auth.signUp({ email: EMAIL, password: 'Abcdefgh12345' })
+check('sign-up is enabled', !/not allowed|signup_disabled/i.test(`${signupErr?.message} ${signupErr?.code}`), signupErr?.message)
+const { error: weakErr } = await anon.auth.signUp({ email: `weak-${Date.now()}@example.com`, password: 'short' })
+check('weak passwords refused', !!weakErr, 'weak password accepted')
 
 const owner = await signIn(EMAIL, PASSWORD)
 const other = await signIn(EMAIL_2, PASSWORD_2)

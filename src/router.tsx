@@ -11,6 +11,7 @@ export const router = createBrowserRouter([
     errorElement: <RouteError />,
     children: [
       { path: '/login', lazy: page(() => import('@/features/auth/login-page')) },
+      { path: '/signup', lazy: page(() => import('@/features/auth/signup-page')) },
       {
         element: <RequireAuth />,
         children: [
