@@ -5,7 +5,16 @@ function required(name: string, value: string | undefined): string {
   return value
 }
 
+/**
+ * VITE_SUPABASE_URL=same-origin means the API is served by the same host as
+ * the app (the Docker stack's gateway routes /auth, /rest, /realtime), so the
+ * image works on any host/port without rebuilding.
+ */
+function resolveSupabaseUrl(value: string): string {
+  return value === 'same-origin' ? window.location.origin : value
+}
+
 export const env = {
-  supabaseUrl: required('VITE_SUPABASE_URL', import.meta.env.VITE_SUPABASE_URL),
+  supabaseUrl: resolveSupabaseUrl(required('VITE_SUPABASE_URL', import.meta.env.VITE_SUPABASE_URL)),
   supabaseKey: required('VITE_SUPABASE_PUBLISHABLE_KEY', import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY),
 } as const

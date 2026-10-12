@@ -23,8 +23,13 @@ function productionHead(supabaseUrl: string | undefined): Plugin {
             'Cloudflare Pages: Settings → Variables and Secrets (Production and Preview).',
         )
       }
-      const api = new URL(supabaseUrl)
-      const realtime = `${api.protocol === 'https:' ? 'wss:' : 'ws:'}//${api.host}`
+      // Self-hosted stack (Docker): API on the app's own origin, any host/port.
+      const sameOrigin = supabaseUrl === 'same-origin'
+      const api = sameOrigin ? null : new URL(supabaseUrl)
+      const connect = api
+        ? `'self' ${api.origin} ${api.protocol === 'https:' ? 'wss:' : 'ws:'}//${api.host}`
+        : // 'self' covers same-origin ws: in current browsers; listed for older ones.
+          "'self' ws: wss:"
       const csp = [
         "default-src 'self'",
         "script-src 'self'",
@@ -32,18 +37,18 @@ function productionHead(supabaseUrl: string | undefined): Plugin {
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "font-src 'self'",
-        `connect-src 'self' ${api.origin} ${realtime}`,
+        `connect-src ${connect}`,
         "worker-src 'self'",
         "manifest-src 'self'",
         "object-src 'none'",
         "base-uri 'self'",
         "form-action 'self'",
-        ...(api.protocol === 'https:' ? ['upgrade-insecure-requests'] : []),
+        ...(api?.protocol === 'https:' ? ['upgrade-insecure-requests'] : []),
       ].join('; ')
 
       return [
         { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: csp }, injectTo: 'head-prepend' },
-        { tag: 'link', attrs: { rel: 'preconnect', href: api.origin, crossorigin: '' }, injectTo: 'head' },
+        ...(api ? [{ tag: 'link', attrs: { rel: 'preconnect', href: api.origin, crossorigin: '' }, injectTo: 'head' as const }] : []),
       ]
     },
   }

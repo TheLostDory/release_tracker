@@ -51,6 +51,44 @@ src/
   types/           generated DB types + domain types
 ```
 
+## Run everything locally with Docker
+
+One command, no Supabase account, no Node on the host. Only Docker:
+
+```bash
+docker compose up -d --build
+```
+
+Then open **http://localhost:8800** and sign in with a demo user: `charbel@example.com` / `password123`.
+
+The first run builds the app and initialises the database (a few minutes, mostly downloads). Later runs start in seconds. Data persists in the `db-data` volume.
+
+| Container | What it is |
+| --- | --- |
+| `db` | Postgres (Supabase image), the same schema as hosted |
+| `auth` | Supabase Auth (GoTrue): email/password, sign-up disabled |
+| `rest` | PostgREST, the data API |
+| `realtime` | Supabase Realtime, live updates on the release page |
+| `migrate` | one-shot: applies `supabase/migrations`, loads `seed.sql` once, exits |
+| `web` | nginx: serves the app and routes `/auth/v1`, `/rest/v1`, `/realtime/v1` on the same port |
+
+Common tasks:
+
+```bash
+docker compose run --rm migrate create-user you@company.com 'a-long-password1' "Your Name"
+docker compose logs -f                 # follow logs
+docker compose down                    # stop (keeps data)
+docker compose down -v                 # stop and DELETE all data
+docker compose up -d --build           # after pulling code changes (applies new migrations)
+SEED=false docker compose up -d --build   # first start without demo data
+```
+
+Ports are bound to `127.0.0.1` only: app on `8800` (`APP_PORT`), Postgres on `54329` (`DB_PORT`, user `postgres`).
+
+**Secrets.** The defaults in `docker-compose.yml` are for local use only. To use your own, run `node docker/generate-keys.mjs`, then put `JWT_SECRET`, `ANON_KEY` and a `POSTGRES_PASSWORD` in a `.env` file next to `docker-compose.yml` (it is git-ignored) **before the first start**. Changing `POSTGRES_PASSWORD` later requires `docker compose down -v`.
+
+Not included locally: the Supabase Studio dashboard and email sending. Users are added with `create-user` above and are confirmed immediately.
+
 ## Deploying (Cloudflare Pages, free)
 
 The app is a static PWA (`npm run build` → `dist/`) talking to a hosted Supabase project. Hosting rules and security headers are in `public/_headers`. Cloudflare Pages serves `index.html` for unknown paths automatically, so deep links work.

@@ -1,0 +1,138 @@
+# Release Tracker, fully local: `docker compose up -d --build`
+#
+# The app + a minimal Supabase stack (Postgres, Auth, PostgREST, Realtime).
+# Everything is published on 127.0.0.1 only. The defaults below are for local
+# use; to change the secrets, run `node docker/generate-keys.mjs` and put the
+# output (plus POSTGRES_PASSWORD) in a .env file next to this one.
+
+name: release-tracker
+
+x-secrets: &secrets
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-release-tracker-local-db-password}
+  JWT_SECRET: ${JWT_SECRET:-release-tracker-local-only-jwt-secret-not-for-production}
+
+services:
+  db:
+    build: ./docker/db
+    image: release-tracker-db
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf -c log_min_messages=fatal
+    restart: unless-stopped
+    environment:
+      <<: *secrets
+      POSTGRES_HOST: /var/run/postgresql
+      POSTGRES_DB: postgres
+      PGPORT: 5432
+      POSTGRES_PORT: 5432
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      # Optional direct access (psql, TablePlus…). Localhost only.
+      - 127.0.0.1:${DB_PORT:-54329}:5432
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -h, localhost]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  auth:
+    image: public.ecr.aws/supabase/gotrue:v2.197.0
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: http://localhost:${APP_PORT:-8800}/auth/v1
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-release-tracker-local-db-password}@db:5432/postgres
+      GOTRUE_SITE_URL: http://localhost:${APP_PORT:-8800}
+      GOTRUE_URI_ALLOW_LIST: ''
+      # Internal tool: no self sign-up. Add users with `docker compose run --rm migrate create-user …`.
+      GOTRUE_DISABLE_SIGNUP: 'true'
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: 'false'
+      GOTRUE_EXTERNAL_PHONE_ENABLED: 'false'
+      GOTRUE_MAILER_AUTOCONFIRM: 'true'
+      GOTRUE_PASSWORD_MIN_LENGTH: 10
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:-release-tracker-local-only-jwt-secret-not-for-production}
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+    healthcheck:
+      test: [CMD, wget, --no-verbose, --tries=1, --spider, http://localhost:9999/health]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rest:
+    image: public.ecr.aws/supabase/postgrest:v16.4
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:-release-tracker-local-db-password}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:-release-tracker-local-only-jwt-secret-not-for-production}
+      PGRST_DB_USE_LEGACY_GUCS: 'false'
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET:-release-tracker-local-only-jwt-secret-not-for-production}
+      PGRST_APP_SETTINGS_JWT_EXP: 3600
+
+  realtime:
+    image: public.ecr.aws/supabase/realtime:v2.140.10
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PORT: 4000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-release-tracker-local-db-password}
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: SET search_path TO _realtime
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET:-release-tracker-local-only-jwt-secret-not-for-production}
+      METRICS_JWT_SECRET: ${JWT_SECRET:-release-tracker-local-only-jwt-secret-not-for-production}
+      SECRET_KEY_BASE: ${REALTIME_SECRET_KEY_BASE:-release-tracker-local-realtime-secret-key-base-0123456789abcdefghijklmnop}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: '10000'
+      APP_NAME: realtime
+      # Creates the "realtime-dev" tenant (the gateway sends that Host header).
+      SEED_SELF_HOST: 'true'
+      RUN_JANITOR: 'true'
+
+  # One-shot: applies supabase/migrations, loads the demo data once, exits.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/migrate/Dockerfile
+    image: release-tracker-migrate
+    restart: 'no'
+    depends_on:
+      db: { condition: service_healthy }
+      auth: { condition: service_healthy }
+    environment:
+      <<: *secrets
+      PGHOST: db
+      SEED: ${SEED:-true}
+
+  web:
+    build:
+      context: .
+      args:
+        VITE_SUPABASE_URL: same-origin
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InJlbGVhc2UtdHJhY2tlci1sb2NhbCIsImlhdCI6MTc5MTgzMDMyMiwiZXhwIjoyMTA3MTkwMzIyfQ.sPUkA3JqAPh29hCjjo-BzGNPmZE96NEYoL_9Ut9Y_WQ}
+    image: release-tracker-web
+    restart: unless-stopped
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      rest: { condition: service_started }
+      realtime: { condition: service_started }
+    ports:
+      - 127.0.0.1:${APP_PORT:-8800}:80
+
+volumes:
+  db-data:
