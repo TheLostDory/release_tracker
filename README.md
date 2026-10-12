@@ -99,6 +99,22 @@ The first run builds the app and initialises the database (a few minutes, mostly
 2. Copy this folder (a zip of the repo is enough; no `node_modules` needed) and open a terminal in it.
 3. Run `docker compose up -d --build` and open http://localhost:8800. The first run downloads ~2.5 GB of images plus npm packages; later starts are offline-capable.
 
+**Without internet on the target machine**: build an image bundle on a machine that has internet (and this repo), then copy it along with the project folder:
+
+```bash
+scripts/build-offline-bundle.sh amd64   # Windows PCs and Intel Macs
+scripts/build-offline-bundle.sh arm64   # Apple-silicon Macs (M1 and later)
+```
+
+On the target machine, inside the project folder:
+
+```bash
+docker load -i release-tracker-images-amd64.tar.gz   # or -arm64
+docker compose up -d                                  # no --build: uses the loaded images
+```
+
+Use `--build` again only when you have internet (it rebuilds the app from source).
+
 Windows: run the command in PowerShell or Windows Terminal from the unzipped folder. If port 8800 or 54329 is taken, set `APP_PORT` / `DB_PORT`, e.g. `$env:APP_PORT=8900; docker compose up -d --build`.
 
 Common tasks:

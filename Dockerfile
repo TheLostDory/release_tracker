@@ -1,7 +1,12 @@
+# check=skip=SecretsUsedInArgOrEnv
+# (The only "key" here is the Supabase anon/publishable key: public by design,
+# it ships inside the browser bundle. Never pass a service-role key.)
 # Release Tracker web image: builds the SPA, serves it with nginx, and routes
 # the Supabase APIs of the local stack (see docker-compose.yml).
 
-FROM node:22-alpine AS build
+# The build output is plain JS/CSS, identical on every CPU, so build on the
+# builder's native platform even when the image targets another one.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 # --ignore-scripts: skips the Supabase CLI binary download (not needed to build).
