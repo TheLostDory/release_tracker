@@ -3,9 +3,11 @@ import { parseDay, toDayString } from '@/lib/dates'
 import type { Sprint } from '@/types/domain'
 import type { SprintInput } from './api'
 
-export type SprintFormErrors = Partial<Record<keyof SprintInput, string>>
+/** Form fields; the project is supplied when saving. */
+export type SprintFormValues = Omit<SprintInput, 'project_id'>
+export type SprintFormErrors = Partial<Record<keyof SprintFormValues, string>>
 
-export function validateSprint(values: SprintInput): SprintFormErrors {
+export function validateSprint(values: SprintFormValues): SprintFormErrors {
   const errors: SprintFormErrors = {}
   if (!values.name.trim()) errors.name = 'Name is required.'
   else if (values.name.trim().length > 100) errors.name = 'Keep the name under 100 characters.'
@@ -25,7 +27,7 @@ const DEFAULT_SPRINT_DAYS = 12 // two working weeks, Monday to the following Fri
  * first weekday after it ends and keeps the same length.
  * `sprints` must be sorted by start_date descending.
  */
-export function suggestNextSprint(sprints: readonly Sprint[], today = new Date()): SprintInput {
+export function suggestNextSprint(sprints: readonly Sprint[], today = new Date()): SprintFormValues {
   const latest = sprints[0]
   if (!latest) {
     const start = isWeekend(today) ? nextMonday(today) : today

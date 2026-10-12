@@ -156,3 +156,46 @@ describe('nextAction', () => {
     expect(nextAction(tasks(all))).toBeNull()
   })
 })
+
+describe('projects with steps turned off', () => {
+  // A Mobile-App-style project: no Load Test/Longevity reviews, no escalation, no approval.
+  const OFF = new Set(['LOAD_TEST_REVIEW', 'LONGEVITY_REVIEW', 'RC_ESCALATION_EMAIL', 'APPROVAL'])
+  const subset = (plan: Plan) => tasks(plan).filter((t) => !OFF.has(t.task_type))
+
+  it('missing prerequisites do not block the next action', () => {
+    const t = subset({
+      RELEASE_IDENTIFIED: done(),
+      RC_CREATION: done(),
+      AUTOMATED_JOBS: done(),
+      HIT_REVIEW: done(),
+      RC_EMAIL: done(),
+      RTP_CREATION: done(),
+      RELEASE_EMAIL: ['NOT_STARTED', '2026-10-12'],
+    })
+    // RELEASE_EMAIL depends on APPROVAL, which this release doesn't have.
+    expect(nextAction(t)).toMatchObject({ type: 'RELEASE_EMAIL', label: 'Send release email' })
+  })
+
+  it('never waits for approval when there is no approval step', () => {
+    const t = subset({
+      RELEASE_IDENTIFIED: done(),
+      RC_CREATION: done(),
+      AUTOMATED_JOBS: done(),
+      HIT_REVIEW: done(),
+      RC_EMAIL: done(),
+      RTP_CREATION: done(),
+    })
+    const r = computeReleaseStatus({ release: input({}).release, tasks: t, reports: [] }, today)
+    expect(r.status).toBe('ON_TRACK')
+  })
+
+  it('waits for approval when only some pre-approval steps exist and all are done', () => {
+    const plan: Plan = Object.fromEntries(WORKFLOW_STEPS.slice(0, 9).map((s) => [s.type, done('2026-10-06')]))
+    plan.APPROVAL = ['IN_PROGRESS', '2026-10-10']
+    const t = tasks(plan).filter((x) => x.task_type !== 'LONGEVITY_REVIEW')
+    expect(computeReleaseStatus({ release: input({}).release, tasks: t, reports: [] }, today).status).toBe(
+      'WAITING_FOR_APPROVAL',
+    )
+  })
+})
+

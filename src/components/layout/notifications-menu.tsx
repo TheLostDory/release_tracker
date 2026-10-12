@@ -40,9 +40,11 @@ export function NotificationsMenu() {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-96 p-0">
-        <div className="border-b px-3 py-2 text-sm font-semibold">Needs attention</div>
+        <div className="border-b px-3 py-2 text-sm font-semibold">
+          Needs attention <span className="font-normal text-muted-foreground">· all projects</span>
+        </div>
         <div className="max-h-96 overflow-y-auto">
-          <ActionItemList items={items} ownerNames={ownerNames} onNavigate={() => setOpen(false)} dense />
+          <ActionItemList items={items} ownerNames={ownerNames} onNavigate={() => setOpen(false)} dense showProject />
         </div>
       </PopoverContent>
     </Popover>

@@ -4,7 +4,9 @@ export interface ReleaseSearchResult {
   id: string
   name: string
   version: string
-  sprint_name: string
+  project_id: string
+  project_name: string
+  sprint_name: string | null
   owner_name: string | null
   planned_deployment_date: string
   actual_deployment_date: string | null

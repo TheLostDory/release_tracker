@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Keyboard, Layers, Loader2, Moon, Plus, Rocket, Sun } from 'lucide-react'
+import { FolderKanban, FolderPlus, Keyboard, Layers, Loader2, Moon, Plus, Rocket, Sun } from 'lucide-react'
 import {
   Command,
   CommandDialog,
@@ -11,6 +11,8 @@ import {
   CommandList,
   CommandShortcut,
 } from '@/components/ui/command'
+import { CreateProjectDialog } from '@/features/projects/create-project-dialog'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { useOpenCreateRelease } from '@/features/releases/create-release-context'
 import { useReleaseSearch } from '@/features/search/queries'
 import { useCurrentSprint } from '@/features/sprints/current-sprint-context'
@@ -29,18 +31,37 @@ function matches(text: string, q: string) {
 }
 
 export function CommandMenu({ open, onOpenChange, onShowShortcuts }: Props) {
+  const [creatingProject, setCreatingProject] = useState(false)
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="Search" description="Search releases and run commands">
-      {/* Remount on open so the query starts empty. */}
-      {open && <CommandMenuBody onClose={() => onOpenChange(false)} onShowShortcuts={onShowShortcuts} />}
-    </CommandDialog>
+    <>
+      <CommandDialog open={open} onOpenChange={onOpenChange} title="Search" description="Search releases and run commands">
+        {/* Remount on open so the query starts empty. */}
+        {open && (
+          <CommandMenuBody
+            onClose={() => onOpenChange(false)}
+            onShowShortcuts={onShowShortcuts}
+            onNewProject={() => setCreatingProject(true)}
+          />
+        )}
+      </CommandDialog>
+      <CreateProjectDialog open={creatingProject} onOpenChange={setCreatingProject} />
+    </>
   )
 }
 
-function CommandMenuBody({ onClose, onShowShortcuts }: { onClose: () => void; onShowShortcuts: () => void }) {
+function CommandMenuBody({
+  onClose,
+  onShowShortcuts,
+  onNewProject,
+}: {
+  onClose: () => void
+  onShowShortcuts: () => void
+  onNewProject: () => void
+}) {
   const navigate = useNavigate()
   const { sprints, setCurrentSprintId } = useCurrentSprint()
   const openCreateRelease = useOpenCreateRelease()
+  const { projects, currentProject, setCurrentProjectId, permissions } = useCurrentProject()
   const theme = useTheme()
   const [input, setInput] = useState('')
   const q = input.trim().toLowerCase()
@@ -55,20 +76,24 @@ function CommandMenuBody({ onClose, onShowShortcuts }: { onClose: () => void; on
   const actions = useMemo(
     () =>
       [
-        { id: 'new-release', label: 'New release', icon: Plus, shortcut: 'C', run: () => openCreateRelease() },
+        ...(permissions.canEdit
+          ? [{ id: 'new-release', label: 'New release', icon: Plus, shortcut: 'C', run: () => openCreateRelease() }]
+          : []),
+        { id: 'new-project', label: 'New project', icon: FolderPlus, shortcut: '', run: onNewProject },
         { id: 'shortcuts', label: 'Keyboard shortcuts', icon: Keyboard, shortcut: '?', run: onShowShortcuts },
         theme.resolved === 'dark'
           ? { id: 'theme', label: 'Switch to light theme', icon: Sun, shortcut: '', run: () => theme.setPreference('light') }
           : { id: 'theme', label: 'Switch to dark theme', icon: Moon, shortcut: '', run: () => theme.setPreference('dark') },
       ].filter((a) => !q || matches(`${a.label} theme mode`, q)),
-    [q, openCreateRelease, onShowShortcuts, theme],
+    [q, openCreateRelease, onShowShortcuts, onNewProject, theme, permissions.canEdit],
   )
   const pages = [...PRIMARY_NAV, ...SECONDARY_NAV].filter((p) => !q || matches(p.label, q))
   const sprintItems = sprints.filter((s) => !q || matches(s.name, q)).slice(0, q ? 5 : 3)
+  const projectItems = projects.filter((p) => p.id !== currentProject?.id && (!q || matches(p.name, q)))
   const releases = q ? (search.data ?? []) : []
   const searching = q.length > 0 && search.isFetching
 
-  const nothing = actions.length + pages.length + sprintItems.length + releases.length === 0
+  const nothing = actions.length + pages.length + sprintItems.length + projectItems.length + releases.length === 0
 
   return (
     <Command shouldFilter={false} loop>
@@ -84,8 +109,7 @@ function CommandMenuBody({ onClose, onShowShortcuts }: { onClose: () => void; on
                 <span className="font-medium">{r.name}</span>
                 <span className="font-mono text-xs text-muted-foreground">{r.version}</span>
                 <span className="truncate text-xs text-muted-foreground">
-                  {r.sprint_name}
-                  {r.owner_name && ` · ${r.owner_name}`}
+                  {[r.project_name, r.sprint_name, r.owner_name].filter(Boolean).join(' · ')}
                 </span>
                 <CommandShortcut>
                   {r.actual_deployment_date ? 'Deployed' : formatDay(r.planned_deployment_date)}
@@ -120,6 +144,26 @@ function CommandMenuBody({ onClose, onShowShortcuts }: { onClose: () => void; on
                 <item.icon />
                 {item.label}
                 <CommandShortcut>G {item.shortcut.toUpperCase()}</CommandShortcut>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {projectItems.length > 0 && (
+          <CommandGroup heading="Switch project">
+            {projectItems.map((p) => (
+              <CommandItem
+                key={p.id}
+                value={`project-${p.id}`}
+                onSelect={() =>
+                  run(() => {
+                    setCurrentProjectId(p.id)
+                    navigate('/')
+                  })
+                }
+              >
+                <FolderKanban />
+                {p.name}
               </CommandItem>
             ))}
           </CommandGroup>

@@ -8,24 +8,30 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ActionRequired } from '@/features/dashboard/action-required'
 import { ReleaseCard } from '@/features/dashboard/release-card'
+import { ProjectOverview } from '@/features/dashboard/project-overview'
 import { SprintOverview } from '@/features/dashboard/sprint-overview'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { StatusTiles } from '@/features/dashboard/status-tiles'
 import { useOpenCreateRelease } from '@/features/releases/create-release-context'
 import { useReleases } from '@/features/releases/queries'
 import { summarizeRelease } from '@/features/releases/release-summary'
 import { useCurrentSprint } from '@/features/sprints/current-sprint-context'
 import { useToday } from '@/hooks/use-today'
-import { parseDay } from '@/lib/dates'
+import { daysFromToday, parseDay } from '@/lib/dates'
 import { RELEASE_STATUS_LABELS } from '@/lib/status-labels'
 import type { ReleaseStatus } from '@/types/domain'
 
 const STATUSES = Object.keys(RELEASE_STATUS_LABELS) as ReleaseStatus[]
+/** Sprint-less projects show releases deployed within this many days. */
+const RECENT_DAYS = 14
 
 function isReleaseStatus(value: string | null): value is ReleaseStatus {
   return value !== null && (STATUSES as string[]).includes(value)
 }
 
 export default function DashboardPage() {
+  const { currentProject, permissions, isLoading: projectsLoading } = useCurrentProject()
+  const sprintsEnabled = !!currentProject?.sprints_enabled
   const { currentSprint, isLoading: sprintsLoading } = useCurrentSprint()
   const openCreateRelease = useOpenCreateRelease()
   const today = useToday()
@@ -33,12 +39,22 @@ export default function DashboardPage() {
   const statusParam = params.get('status')
   const statusFilter = isReleaseStatus(statusParam) ? statusParam : null
 
-  const releases = useReleases({ sprintId: currentSprint?.id }, { enabled: !!currentSprint })
-
-  const rows = useMemo(
-    () => (releases.data ?? []).map((r) => ({ release: r, summary: summarizeRelease(r, parseDay(today)) })),
-    [releases.data, today],
+  // Sprints on: the current sprint. Sprints off: the whole project.
+  const releases = useReleases(
+    sprintsEnabled ? { projectId: currentProject?.id, sprintId: currentSprint?.id } : { projectId: currentProject?.id },
+    { enabled: sprintsEnabled ? !!currentSprint : !!currentProject },
   )
+  const sprintId = sprintsEnabled ? currentSprint?.id : undefined
+  const newRelease = permissions.canEdit ? () => openCreateRelease({ sprintId }) : undefined
+
+  const rows = useMemo(() => {
+    const data = releases.data ?? []
+    // Without sprints, focus on what's open plus anything deployed recently.
+    const scoped = sprintsEnabled
+      ? data
+      : data.filter((r) => !r.actual_deployment_date || daysFromToday(r.actual_deployment_date, parseDay(today)) >= -RECENT_DAYS)
+    return scoped.map((r) => ({ release: r, summary: summarizeRelease(r, parseDay(today)) }))
+  }, [releases.data, today, sprintsEnabled])
   const counts = useMemo(() => {
     const c = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<ReleaseStatus, number>
     for (const { summary } of rows) c[summary.status.status]++
@@ -58,7 +74,7 @@ export default function DashboardPage() {
     )
   }
 
-  if (sprintsLoading) {
+  if (projectsLoading || sprintsLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-10 w-64" />
@@ -67,23 +83,25 @@ export default function DashboardPage() {
       </div>
     )
   }
-  if (!currentSprint) {
+  if (!currentProject) return null // Layout shows the "no projects" screen.
+  if (sprintsEnabled && !currentSprint) {
     return <EmptyState icon={Layers} title="No sprints yet" description="Create a sprint to start tracking releases." />
   }
+  const newReleaseButton = newRelease && (
+    <Button size="sm" onClick={newRelease}>
+      <Plus />
+      New release
+    </Button>
+  )
 
   return (
     <div className="space-y-5">
-      <PageTitle title={`Dashboard · ${currentSprint.name}`} />
-      <SprintOverview
-        sprint={currentSprint}
-        today={today}
-        actions={
-          <Button size="sm" onClick={() => openCreateRelease({ sprintId: currentSprint.id })}>
-            <Plus />
-            New release
-          </Button>
-        }
-      />
+      <PageTitle title={`Dashboard · ${currentSprint?.name ?? currentProject.name}`} />
+      {currentSprint ? (
+        <SprintOverview sprint={currentSprint} today={today} actions={newReleaseButton} />
+      ) : (
+        <ProjectOverview project={currentProject} recentDays={RECENT_DAYS} actions={newReleaseButton} />
+      )}
 
       {releases.isLoading ? (
         <Skeleton className="h-20 w-full" />
@@ -107,13 +125,8 @@ export default function DashboardPage() {
           ) : rows.length === 0 ? (
             <EmptyState
               icon={Rocket}
-              title="No releases in this sprint"
-              action={
-                <Button size="sm" onClick={() => openCreateRelease({ sprintId: currentSprint.id })}>
-                  <Plus />
-                  New release
-                </Button>
-              }
+              title={currentSprint ? 'No releases in this sprint' : 'No open releases'}
+              action={newReleaseButton}
             />
           ) : visible.length === 0 ? (
             <EmptyState
@@ -135,7 +148,7 @@ export default function DashboardPage() {
         </section>
 
         <aside className="xl:pt-7">
-          <ActionRequired />
+          <ActionRequired projectId={currentProject.id} />
         </aside>
       </div>
     </div>

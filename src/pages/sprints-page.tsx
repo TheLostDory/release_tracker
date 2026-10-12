@@ -9,15 +9,29 @@ import { SprintStatusBadge } from '@/components/status-badges'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { useSprints } from '@/features/sprints/queries'
+import { SprintsDisabled } from '@/features/sprints/sprints-disabled'
 import { SprintActions } from '@/features/sprints/sprint-actions'
 import { SprintDialog } from '@/features/sprints/sprint-dialog'
 import { formatDayRange } from '@/lib/dates'
 
 export default function SprintsPage() {
   const navigate = useNavigate()
-  const { data: sprints, isLoading, error, refetch } = useSprints()
+  const { currentProject, permissions } = useCurrentProject()
+  const sprintsEnabled = !!currentProject?.sprints_enabled
+  const { data: sprints, isLoading, error, refetch } = useSprints(currentProject?.id, sprintsEnabled)
   const [creating, setCreating] = useState(false)
+
+  if (currentProject && !sprintsEnabled) {
+    return (
+      <>
+        <PageTitle title="Sprints" />
+        <PageHeader title="Sprints" />
+        <SprintsDisabled />
+      </>
+    )
+  }
 
   return (
     <>
@@ -25,10 +39,12 @@ export default function SprintsPage() {
       <PageHeader
         title="Sprints"
         actions={
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus />
-            New sprint
-          </Button>
+          permissions.canEdit && (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus />
+              New sprint
+            </Button>
+          )
         }
       />
 
@@ -42,10 +58,12 @@ export default function SprintsPage() {
           title="No sprints yet"
           description="Create a sprint to start planning releases."
           action={
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus />
-              New sprint
-            </Button>
+            permissions.canEdit && (
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <Plus />
+                New sprint
+              </Button>
+            )
           }
         />
       ) : (

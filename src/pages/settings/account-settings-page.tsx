@@ -3,7 +3,6 @@ import { Monitor, Moon, Sun } from 'lucide-react'
 import { toast } from 'sonner'
 import { FormField } from '@/components/form-field'
 import { ShortcutList } from '@/components/layout/shortcuts-dialog'
-import { PageHeader } from '@/components/page-header'
 import { PageTitle } from '@/components/page-title'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,11 +13,10 @@ import type { ThemePreference } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { toUserMessage } from '@/lib/supabase-errors'
 
-export default function SettingsPage() {
+export default function AccountSettingsPage() {
   return (
     <>
-      <PageTitle title="Settings" />
-      <PageHeader title="Settings" />
+      <PageTitle title="Account settings" />
       <div className="grid max-w-4xl gap-8 lg:grid-cols-2">
         <section aria-labelledby="profile-heading" className="space-y-3">
           <h2 id="profile-heading" className="text-sm font-medium">

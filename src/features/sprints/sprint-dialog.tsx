@@ -15,10 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SPRINT_STATUS_OPTIONS } from '@/lib/status-labels'
 import { toUserMessage } from '@/lib/supabase-errors'
 import type { Sprint, SprintStatus } from '@/types/domain'
-import type { SprintInput } from './api'
 import { useCurrentSprint } from './current-sprint-context'
 import { useCreateSprint, useUpdateSprint } from './queries'
-import { suggestNextSprint, validateSprint, type SprintFormErrors } from './sprint-form'
+import { suggestNextSprint, validateSprint, type SprintFormErrors, type SprintFormValues } from './sprint-form'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 
 interface Props {
   open: boolean
@@ -40,17 +40,18 @@ export function SprintDialog({ open, onOpenChange, sprint }: Props) {
 
 function SprintForm({ sprint, onDone }: { sprint?: Sprint; onDone: () => void }) {
   const { sprints } = useCurrentSprint()
-  const [values, setValues] = useState<SprintInput>(() =>
+  const { currentProject } = useCurrentProject()
+  const [values, setValues] = useState<SprintFormValues>(() =>
     sprint
       ? { name: sprint.name, start_date: sprint.start_date, end_date: sprint.end_date, status: sprint.status }
       : suggestNextSprint(sprints),
   )
   const [errors, setErrors] = useState<SprintFormErrors>({})
   const create = useCreateSprint()
-  const update = useUpdateSprint()
+  const update = useUpdateSprint(currentProject?.id ?? '')
   const pending = create.isPending || update.isPending
 
-  function set<K extends keyof SprintInput>(key: K, value: SprintInput[K]) {
+  function set<K extends keyof SprintFormValues>(key: K, value: SprintFormValues[K]) {
     setValues((v) => ({ ...v, [key]: value }))
     setErrors((e) => ({ ...e, [key]: undefined }))
   }
@@ -67,7 +68,8 @@ function SprintForm({ sprint, onDone }: { sprint?: Sprint; onDone: () => void })
         await update.mutateAsync({ id: sprint.id, patch: input })
         toast.success(`${input.name} updated`)
       } else {
-        await create.mutateAsync(input)
+        if (!currentProject) return
+        await create.mutateAsync({ ...input, project_id: currentProject.id })
         toast.success(`${input.name} created`)
       }
       onDone()

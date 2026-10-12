@@ -1,5 +1,4 @@
 import { NavLink, useLocation } from 'react-router'
-import { Rocket } from 'lucide-react'
 import {
   Sidebar,
   SidebarContent,
@@ -12,7 +11,9 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { PRIMARY_NAV, SECONDARY_NAV, type NavItem } from './nav-items'
+import { ProjectSwitcher } from './project-switcher'
 
 function isActive(pathname: string, to: string): boolean {
   return to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`)
@@ -37,26 +38,18 @@ function NavMenu({ items }: { items: readonly NavItem[] }) {
 }
 
 export function AppSidebar() {
+  const { currentProject } = useCurrentProject()
+  // Projects without sprints don't show the Sprints page.
+  const items = PRIMARY_NAV.filter((i) => i.to !== '/sprints' || currentProject?.sprints_enabled !== false)
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <NavLink to="/">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-                  <Rocket className="size-4" />
-                </div>
-                <span className="font-semibold tracking-tight">Release Tracker</span>
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        <ProjectSwitcher />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
-            <NavMenu items={PRIMARY_NAV} />
+            <NavMenu items={items} />
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

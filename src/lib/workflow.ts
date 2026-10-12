@@ -64,7 +64,10 @@ export function isDone(status: TaskStatus): boolean {
   return status === 'COMPLETED' || status === 'SKIPPED'
 }
 
-/** Prerequisites of `type` that are not completed or skipped. */
+/**
+ * Prerequisites of `type` that are not completed or skipped. Steps the
+ * release doesn't have (turned off in its project) don't block anything.
+ */
 export function unmetDependencies(
   type: WorkflowTaskType,
   tasks: readonly { task_type: WorkflowTaskType; status: TaskStatus }[],
@@ -73,7 +76,10 @@ export function unmetDependencies(
   return STEP_BY_TYPE[type].dependsOn
     .filter((dep) => {
       const status = statusByType.get(dep)
-      return status === undefined || !isDone(status)
+      return status !== undefined && !isDone(status)
     })
     .map((dep) => STEP_BY_TYPE[dep])
 }
+
+/** Steps that every project must keep (status and lifecycle depend on them). */
+export const REQUIRED_STEPS: readonly WorkflowTaskType[] = ['RELEASE_IDENTIFIED', 'DEPLOYMENT']

@@ -8,6 +8,10 @@
 --                                          HF_1 1.3.1  (WAITING_FOR_APPROVAL)
 --   Sprint 43  Oct 19 – Oct 30  PLANNED    RC_1 1.6.0  (just identified)
 --
+-- Projects:
+--   Release Tracker  sprints on, full workflow (the releases above)
+--   Mobile App       sprints off, HIT report only, no approval/escalation
+--
 -- Login: charbel@example.com / password123 (all seed users share the password)
 
 -- ---------------------------------------------------------------------------
@@ -41,23 +45,49 @@ where u.id in (
 );
 
 -- ---------------------------------------------------------------------------
+-- Projects & roles
+-- ---------------------------------------------------------------------------
+
+insert into public.projects (id, name, description, sprints_enabled, enabled_steps, created_by) values
+  ('d0000000-0000-4000-8000-000000000001', 'Release Tracker',
+   'Platform releases: full RC workflow with sprints.', true,
+   enum_range(null::public.workflow_task_type), 'a0000000-0000-4000-8000-000000000001'),
+  ('d0000000-0000-4000-8000-000000000002', 'Mobile App',
+   'iOS and Android releases. No sprints; HIT review only; no approval gate.', false,
+   array['RELEASE_IDENTIFIED', 'RC_CREATION', 'AUTOMATED_JOBS', 'HIT_REVIEW', 'RC_EMAIL',
+         'RTP_CREATION', 'RELEASE_EMAIL', 'DEPLOYMENT']::public.workflow_task_type[],
+   'a0000000-0000-4000-8000-000000000001');
+
+insert into public.project_members (project_id, user_id, role) values
+  ('d0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', 'OWNER'),
+  ('d0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', 'ADMIN'),
+  ('d0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000003', 'MEMBER'),
+  ('d0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000004', 'MEMBER'),
+  ('d0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000001', 'OWNER'),
+  ('d0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000003', 'ADMIN'),
+  ('d0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000004', 'VIEWER');
+
+-- ---------------------------------------------------------------------------
 -- Sprints
 -- ---------------------------------------------------------------------------
 
-insert into public.sprints (id, name, start_date, end_date, status) values
-  ('b0000000-0000-4000-8000-000000000041', 'Sprint 41', current_date - 16, current_date - 5,  'COMPLETED'),
-  ('b0000000-0000-4000-8000-000000000042', 'Sprint 42', current_date - 2,  current_date + 9,  'ACTIVE'),
-  ('b0000000-0000-4000-8000-000000000043', 'Sprint 43', current_date + 12, current_date + 23, 'PLANNED');
+insert into public.sprints (id, project_id, name, start_date, end_date, status) values
+  ('b0000000-0000-4000-8000-000000000041', 'd0000000-0000-4000-8000-000000000001', 'Sprint 41', current_date - 16, current_date - 5,  'COMPLETED'),
+  ('b0000000-0000-4000-8000-000000000042', 'd0000000-0000-4000-8000-000000000001', 'Sprint 42', current_date - 2,  current_date + 9,  'ACTIVE'),
+  ('b0000000-0000-4000-8000-000000000043', 'd0000000-0000-4000-8000-000000000001', 'Sprint 43', current_date + 12, current_date + 23, 'PLANNED');
 
 -- ---------------------------------------------------------------------------
 -- Releases (workflow tasks, reports and approval rows are created by trigger)
 -- ---------------------------------------------------------------------------
 
-insert into public.releases (id, sprint_id, name, version, description, owner_id,
-                             planned_deployment_date, actual_deployment_date, created_at) values
-  ('c0000000-0000-4000-8000-000000000411', 'b0000000-0000-4000-8000-000000000041',
+insert into public.releases (id, project_id, sprint_id, name, version, description, owner_id,
+                             planned_deployment_date, actual_deployment_date, created_at)
+select id, 'd0000000-0000-4000-8000-000000000001', sprint_id, name, version, description, owner_id,
+       planned_deployment_date, actual_deployment_date, created_at
+from (values
+  ('c0000000-0000-4000-8000-000000000411'::uuid, 'b0000000-0000-4000-8000-000000000041'::uuid,
    'RC_1', '1.3.0', 'Sprint 41 release: billing exports and audit trail.',
-   'a0000000-0000-4000-8000-000000000002', current_date - 6, current_date - 6, now() - interval '17 days'),
+   'a0000000-0000-4000-8000-000000000002'::uuid, current_date - 6, (current_date - 6)::date, now() - interval '17 days'),
   ('c0000000-0000-4000-8000-000000000421', 'b0000000-0000-4000-8000-000000000042',
    'RC_1', '1.4.0', 'Search revamp, faster dashboard queries, notification preferences.',
    'a0000000-0000-4000-8000-000000000002', current_date + 6, null, now() - interval '3 days'),
@@ -69,7 +99,18 @@ insert into public.releases (id, sprint_id, name, version, description, owner_id
    'a0000000-0000-4000-8000-000000000001', current_date + 2, null, now() - interval '2 days'),
   ('c0000000-0000-4000-8000-000000000431', 'b0000000-0000-4000-8000-000000000043',
    'RC_1', '1.6.0', 'Reporting module and SSO groundwork.',
-   'a0000000-0000-4000-8000-000000000004', current_date + 20, null, now());
+   'a0000000-0000-4000-8000-000000000004', current_date + 20, null, now())
+) as r (id, sprint_id, name, version, description, owner_id, planned_deployment_date, actual_deployment_date, created_at);
+
+-- Mobile App: no sprints.
+insert into public.releases (id, project_id, sprint_id, name, version, description, owner_id,
+                             planned_deployment_date, actual_deployment_date, created_at) values
+  ('c0000000-0000-4000-8000-000000000501', 'd0000000-0000-4000-8000-000000000002', null,
+   'Android', '3.1.0', 'Offline mode for field teams.',
+   'a0000000-0000-4000-8000-000000000003', current_date - 5, current_date - 5, now() - interval '12 days'),
+  ('c0000000-0000-4000-8000-000000000502', 'd0000000-0000-4000-8000-000000000002', null,
+   'iOS', '3.2.0', 'Push notification redesign and widget support.',
+   'a0000000-0000-4000-8000-000000000003', current_date + 4, null, now() - interval '4 days');
 
 -- ---------------------------------------------------------------------------
 -- Task states: (release, step, status, planned offset, completed offset, owner)
@@ -141,7 +182,27 @@ from (values
   ('c0000000-0000-4000-8000-000000000423', 'DEPLOYMENT',          'NOT_STARTED', 2, null, 'a0000000-0000-4000-8000-000000000004', null),
 
   -- Sprint 43 RC_1: just identified
-  ('c0000000-0000-4000-8000-000000000431', 'RELEASE_IDENTIFIED',  'COMPLETED',   0,   0, 'a0000000-0000-4000-8000-000000000004', null)
+  ('c0000000-0000-4000-8000-000000000431', 'RELEASE_IDENTIFIED',  'COMPLETED',   0,   0, 'a0000000-0000-4000-8000-000000000004', null),
+
+  -- Mobile Android 3.1: released
+  ('c0000000-0000-4000-8000-000000000501', 'RELEASE_IDENTIFIED',  'COMPLETED', -12, -12, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000501', 'RC_CREATION',         'COMPLETED', -10, -10, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000501', 'AUTOMATED_JOBS',      'COMPLETED',  -9,  -9, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000501', 'HIT_REVIEW',          'COMPLETED',  -8,  -8, 'a0000000-0000-4000-8000-000000000001', null),
+  ('c0000000-0000-4000-8000-000000000501', 'RC_EMAIL',            'COMPLETED',  -7,  -7, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000501', 'RTP_CREATION',        'COMPLETED',  -6,  -6, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000501', 'RELEASE_EMAIL',       'COMPLETED',  -5,  -5, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000501', 'DEPLOYMENT',          'COMPLETED',  -5,  -5, 'a0000000-0000-4000-8000-000000000003', null),
+
+  -- Mobile iOS 3.2: HIT review due today
+  ('c0000000-0000-4000-8000-000000000502', 'RELEASE_IDENTIFIED',  'COMPLETED',  -4,  -4, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000502', 'RC_CREATION',         'COMPLETED',  -2,  -2, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000502', 'AUTOMATED_JOBS',      'COMPLETED',  -1,  -1, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000502', 'HIT_REVIEW',          'IN_PROGRESS', 0, null, 'a0000000-0000-4000-8000-000000000001', 'TestFlight build 412 under review.'),
+  ('c0000000-0000-4000-8000-000000000502', 'RC_EMAIL',            'NOT_STARTED', 1, null, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000502', 'RTP_CREATION',        'NOT_STARTED', 2, null, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000502', 'RELEASE_EMAIL',       'NOT_STARTED', 4, null, 'a0000000-0000-4000-8000-000000000003', null),
+  ('c0000000-0000-4000-8000-000000000502', 'DEPLOYMENT',          'NOT_STARTED', 4, null, 'a0000000-0000-4000-8000-000000000003', null)
 ) as s (release_id, task_type, status, planned, completed, owner, notes)
 where t.release_id = s.release_id
   and t.task_type = s.task_type::public.workflow_task_type;
@@ -169,7 +230,10 @@ from (values
 
   ('c0000000-0000-4000-8000-000000000423', 'LOAD_TEST',      'SKIPPED',   'NOT_REVIEWED', null, null, null, 'Not required for hotfix.'),
   ('c0000000-0000-4000-8000-000000000423', 'LONGEVITY',      'SKIPPED',   'NOT_REVIEWED', null, null, null, 'Not required for hotfix.'),
-  ('c0000000-0000-4000-8000-000000000423', 'HIT',            'COMPLETED', 'PASS', 'a0000000-0000-4000-8000-000000000001', -1, 'https://reports.example.com/hit/1.3.1', null)
+  ('c0000000-0000-4000-8000-000000000423', 'HIT',            'COMPLETED', 'PASS', 'a0000000-0000-4000-8000-000000000001', -1, 'https://reports.example.com/hit/1.3.1', null),
+
+  ('c0000000-0000-4000-8000-000000000501', 'HIT',            'COMPLETED',   'PASS',         'a0000000-0000-4000-8000-000000000001', -8, 'https://reports.example.com/hit/android-3.1', null),
+  ('c0000000-0000-4000-8000-000000000502', 'HIT',            'IN_PROGRESS', 'NOT_REVIEWED', 'a0000000-0000-4000-8000-000000000001', null, null, null)
 ) as s (release_id, report_type, status, result, reviewer, reviewed, url, notes)
 where r.release_id = s.release_id
   and r.report_type = s.report_type::public.report_type;

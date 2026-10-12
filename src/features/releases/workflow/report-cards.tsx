@@ -27,19 +27,23 @@ interface Props {
   tasks: readonly ReleaseTask[]
   onUpdate: (id: string, patch: ReportPatch) => void
   guard: (stepName: string, unmet: WorkflowStep[], proceed: () => void) => void
+  readOnly?: boolean
 }
 
-export function ReportCards({ reports, tasks, onUpdate, guard }: Props) {
+export function ReportCards({ reports, tasks, onUpdate, guard, readOnly = false }: Props) {
+  if (reports.length === 0) {
+    return <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">This project doesn't use report reviews.</p>
+  }
   return (
     <div className="grid gap-3 md:grid-cols-3">
       {reports.map((r) => (
-        <ReportCard key={r.id} report={r} tasks={tasks} onUpdate={onUpdate} guard={guard} />
+        <ReportCard key={r.id} report={r} tasks={tasks} onUpdate={onUpdate} guard={guard} readOnly={readOnly} />
       ))}
     </div>
   )
 }
 
-function ReportCard({ report, tasks, onUpdate, guard }: { report: ReleaseReport } & Omit<Props, 'reports'>) {
+function ReportCard({ report, tasks, onUpdate, guard, readOnly }: { report: ReleaseReport } & Omit<Props, 'reports'>) {
   const [urlError, setUrlError] = useState<string | null>(null)
   const label = REPORT_LABELS[report.report_type]
   const reviewStep = REVIEW_STEP_FOR_REPORT[report.report_type]
@@ -87,7 +91,7 @@ function ReportCard({ report, tasks, onUpdate, guard }: { report: ReleaseReport 
             aria-pressed={report.result === result}
             className={cn(report.result === result && RESULT_ACTIVE[result])}
             onClick={() => setResult(result)}
-            disabled={report.status === 'SKIPPED'}
+            disabled={readOnly || report.status === 'SKIPPED'}
           >
             {REPORT_RESULT_LABELS[result]}
           </Button>
@@ -95,7 +99,7 @@ function ReportCard({ report, tasks, onUpdate, guard }: { report: ReleaseReport 
       </div>
 
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-        {reviewed ? (
+        {readOnly ? null : reviewed ? (
           <Button variant="link" size="xs" className="h-auto p-0 text-xs" onClick={() => setResult('NOT_REVIEWED')}>
             Reset review
           </Button>
@@ -125,6 +129,7 @@ function ReportCard({ report, tasks, onUpdate, guard }: { report: ReleaseReport 
             type="url"
             aria-label={`${label} report URL`}
             placeholder="Report URL"
+            readOnly={readOnly}
             defaultValue={report.report_url ?? ''}
             aria-invalid={urlError ? true : undefined}
             className="h-8 text-sm"
@@ -152,7 +157,8 @@ function ReportCard({ report, tasks, onUpdate, guard }: { report: ReleaseReport 
       <Textarea
         key={`notes-${report.notes}`}
         aria-label={`${label} notes`}
-        placeholder="Findings, thresholds, follow-ups…"
+        placeholder={readOnly ? 'No notes' : 'Findings, thresholds, follow-ups…'}
+        readOnly={readOnly}
         rows={2}
         defaultValue={report.notes ?? ''}
         className="text-sm"

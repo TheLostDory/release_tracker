@@ -9,7 +9,7 @@ import type { ReleaseDetail } from './api'
 import { useDeleteRelease } from './queries'
 import { ReleaseDialog } from './release-dialog'
 
-export function ReleaseActions({ release }: { release: ReleaseDetail }) {
+export function ReleaseActions({ release, canDelete }: { release: ReleaseDetail; canDelete: boolean }) {
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -19,7 +19,7 @@ export function ReleaseActions({ release }: { release: ReleaseDetail }) {
     remove.mutate(release.id, {
       onSuccess: () => {
         toast.success(`${release.name} deleted`)
-        navigate(`/sprints/${release.sprint.id}`, { replace: true })
+        navigate(release.sprint ? `/sprints/${release.sprint.id}` : '/releases', { replace: true })
       },
       onError: (err) => toast.error(toUserMessage(err)),
     })
@@ -31,9 +31,11 @@ export function ReleaseActions({ release }: { release: ReleaseDetail }) {
         <Pencil />
         Edit
       </Button>
-      <Button size="sm" variant="ghost" onClick={() => setDeleting(true)} aria-label={`Delete ${release.name}`}>
-        <Trash2 />
-      </Button>
+      {canDelete && (
+        <Button size="sm" variant="ghost" onClick={() => setDeleting(true)} aria-label={`Delete ${release.name}`}>
+          <Trash2 />
+        </Button>
+      )}
 
       <ReleaseDialog open={editing} onOpenChange={setEditing} release={release} />
       <ConfirmDeleteDialog

@@ -10,7 +10,9 @@ import type {
 } from '@/types/domain'
 
 export interface ReleaseInput {
-  sprint_id: string
+  project_id: string
+  /** Optional: projects can work without sprints. */
+  sprint_id: string | null
   name: string
   version: string
   owner_id: string | null
@@ -18,7 +20,7 @@ export interface ReleaseInput {
   description: string | null
 }
 
-export interface ReleasePatch extends Partial<ReleaseInput> {
+export interface ReleasePatch extends Partial<Omit<ReleaseInput, 'project_id'>> {
   actual_deployment_date?: string | null
   status_override?: ReleaseStatus | null
   status_override_reason?: string | null
@@ -47,7 +49,8 @@ export interface ReleaseListItem {
   actual_deployment_date: string | null
   status_override: ReleaseStatus | null
   status_override_reason: string | null
-  sprint: { id: string; name: string }
+  project: { id: string; name: string }
+  sprint: { id: string; name: string } | null
   owner: ProfileSummary | null
   tasks: ListTask[]
   reports: ListReport[]
@@ -97,7 +100,8 @@ export interface ReleaseDetail {
   status_override: ReleaseStatus | null
   status_override_reason: string | null
   created_at: string
-  sprint: { id: string; name: string; start_date: string; end_date: string }
+  project_id: string
+  sprint: { id: string; name: string; start_date: string; end_date: string } | null
   owner: ProfileSummary | null
   tasks: ReleaseTask[]
   reports: ReleaseReport[]
@@ -119,6 +123,8 @@ export type ReportPatch = Partial<Pick<ReleaseReport, 'status' | 'result' | 'rep
 export type ApprovalPatch = Partial<Pick<ReleaseApproval, 'status' | 'comments'>>
 
 export interface ReleaseFilters {
+  projectId?: string
+  /** A sprint id, or 'none' for releases without a sprint. */
   sprintId?: string
   /** Only releases not yet deployed (any sprint). */
   open?: boolean
@@ -132,7 +138,8 @@ export const RELEASE_LIST_LIMIT = 500
 
 const LIST_COLUMNS = `
   id, name, version, planned_deployment_date, actual_deployment_date, status_override, status_override_reason,
-  sprint:sprints!inner(id, name),
+  project:projects!inner(id, name),
+  sprint:sprints(id, name),
   owner:profiles!releases_owner_id_fkey(id, name),
   tasks:release_tasks(task_type, status, planned_date, completed_at, blocker_reason, owner_id),
   reports(report_type, result)
@@ -140,6 +147,7 @@ const LIST_COLUMNS = `
 
 /** Releases with their steps/reports in one round trip (no N+1). */
 export async function listReleases({
+  projectId,
   sprintId,
   open,
   deploymentFrom,
@@ -151,7 +159,9 @@ export async function listReleases({
     // One sprint: chronological. All sprints: most recent targets first.
     .order('planned_deployment_date', { ascending: !!sprintId })
     .limit(RELEASE_LIST_LIMIT)
-  if (sprintId) query = query.eq('sprint_id', sprintId)
+  if (projectId) query = query.eq('project_id', projectId)
+  if (sprintId === 'none') query = query.is('sprint_id', null)
+  else if (sprintId) query = query.eq('sprint_id', sprintId)
   if (open) query = query.is('actual_deployment_date', null)
   if (deploymentFrom) query = query.gte('planned_deployment_date', deploymentFrom)
   if (deploymentTo) query = query.lte('planned_deployment_date', deploymentTo)
@@ -166,8 +176,8 @@ export async function getRelease(id: string): Promise<ReleaseDetail> {
     .from('releases')
     .select(
       `id, name, version, description, planned_deployment_date, actual_deployment_date,
-       status_override, status_override_reason, created_at,
-       sprint:sprints!inner(id, name, start_date, end_date),
+       status_override, status_override_reason, created_at, project_id,
+       sprint:sprints(id, name, start_date, end_date),
        owner:profiles!releases_owner_id_fkey(id, name),
        tasks:release_tasks(id, task_type, name, position, status, planned_date, completed_at,
          owner_id, notes, link, blocker_reason),

@@ -20,9 +20,9 @@ function readScope(): Scope {
   }
 }
 
-export function ActionRequired() {
+export function ActionRequired({ projectId }: { projectId: string }) {
   const { user } = useAuth()
-  const { items, isLoading, error, refetch } = useActionItems()
+  const { items, isLoading, error, refetch } = useActionItems(projectId)
   const { data: profiles = [] } = useProfiles()
   const [scope, setScopeState] = useState<Scope>(readScope)
   const ownerNames = useMemo(() => new Map(profiles.map((p) => [p.id, p.name])), [profiles])
@@ -77,7 +77,7 @@ export function ActionRequired() {
           emptyLabel={scope === 'mine' ? 'Nothing assigned to you needs attention.' : 'Nothing needs attention.'}
         />
       )}
-      <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">All open releases, across sprints.</p>
+      <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">All open releases in this project.</p>
     </section>
   )
 }

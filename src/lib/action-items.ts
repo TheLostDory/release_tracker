@@ -28,6 +28,7 @@ export interface ActionItem {
   severity: ActionSeverity
   releaseId: string
   releaseName: string
+  projectName: string | null
   title: string
   detail: string | null
   due: string | null
@@ -43,6 +44,7 @@ export interface ActionRelease {
   actual_deployment_date: string | null
   status_override: ReleaseStatus | null
   owner: { id: string } | null
+  project?: { name: string } | null
   tasks: readonly {
     task_type: WorkflowTaskType
     status: TaskStatus
@@ -81,7 +83,7 @@ export function releaseActionItems(release: ActionRelease, today = new Date()): 
   if (status === 'RELEASED') return []
 
   const items: ActionItem[] = []
-  const base = { releaseId: release.id, releaseName: release.name }
+  const base = { releaseId: release.id, releaseName: release.name, projectName: release.project?.name ?? null }
 
   for (const t of release.tasks) {
     if (isDone(t.status)) continue

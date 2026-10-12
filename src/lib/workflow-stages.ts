@@ -39,7 +39,9 @@ export function summarizeStages(
   stages: readonly string[] = WORKFLOW_STAGES,
 ): StageSummary[] {
   const currentStage = current ? STEP_BY_TYPE[current].stage : null
-  return stages.map((name) => {
+  // Stages with no steps (turned off in the project) are left out.
+  const present = stages.filter((name) => tasks.some((t) => STEP_BY_TYPE[t.task_type].stage === name))
+  return present.map((name) => {
     const inStage = tasks.filter((t) => STEP_BY_TYPE[t.task_type].stage === name)
     const latest = (values: (string | null | undefined)[]) =>
       values.filter((v): v is string => !!v).sort().at(-1) ?? null

@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { useProfiles } from '@/features/profiles/queries'
+import { useCurrentProject } from '@/features/projects/current-project-context'
+import { useProjectMembers } from '@/features/projects/queries'
 import { dueTone, toDayString } from '@/lib/dates'
 import { safeHttpUrl } from '@/lib/safe-url'
 import { TASK_STATUS_LABELS } from '@/lib/status-labels'
@@ -34,10 +35,14 @@ interface Props {
   current: WorkflowTaskType | null
   onUpdate: (task: ReleaseTask, patch: TaskPatch) => void
   guard: (stepName: string, unmet: WorkflowStep[], proceed: () => void) => void
+  /** Viewers see everything but can't change it. */
+  readOnly?: boolean
 }
 
-export function TaskList({ tasks, current, onUpdate, guard }: Props) {
-  const { data: profiles = [] } = useProfiles()
+export function TaskList({ tasks, current, onUpdate, guard, readOnly = false }: Props) {
+  const { currentProject } = useCurrentProject()
+  const { data: members = [] } = useProjectMembers(currentProject?.id)
+  const profiles = members.flatMap((m) => (m.profile ? [m.profile] : []))
   const [expanded, setExpanded] = useState<string | null>(null)
 
   function changeStatus(task: ReleaseTask, status: TaskStatus) {
@@ -112,7 +117,7 @@ export function TaskList({ tasks, current, onUpdate, guard }: Props) {
                         </span>
                       </button>
                     ) : (
-                      <Select value={task.status} onValueChange={(v) => changeStatus(task, v as TaskStatus)}>
+                      <Select value={task.status} onValueChange={(v) => changeStatus(task, v as TaskStatus)} disabled={readOnly}>
                         <SelectTrigger size="sm" className="h-7 w-full text-xs" aria-label={`Status of ${task.name}`}>
                           <SelectValue />
                         </SelectTrigger>
@@ -130,6 +135,7 @@ export function TaskList({ tasks, current, onUpdate, guard }: Props) {
                     <Input
                       type="date"
                       aria-label={`Planned date of ${task.name}`}
+                      disabled={readOnly}
                       className={cn(
                         'h-7 text-xs tabular-nums',
                         overdue && 'border-red-500/50 text-red-600 dark:text-red-400',
@@ -144,6 +150,7 @@ export function TaskList({ tasks, current, onUpdate, guard }: Props) {
                       <Input
                         type="date"
                         aria-label={`Completed date of ${task.name}`}
+                        disabled={readOnly}
                         className="h-7 text-xs tabular-nums"
                         value={task.completed_at ? toDayString(new Date(task.completed_at)) : ''}
                         onChange={(e) => {
@@ -161,6 +168,7 @@ export function TaskList({ tasks, current, onUpdate, guard }: Props) {
                     <Select
                       value={task.owner_id ?? UNASSIGNED}
                       onValueChange={(v) => onUpdate(task, { owner_id: v === UNASSIGNED ? null : v })}
+                      disabled={readOnly}
                     >
                       <SelectTrigger size="sm" className="h-7 w-full text-xs" aria-label={`Owner of ${task.name}`}>
                         <SelectValue />
@@ -180,7 +188,7 @@ export function TaskList({ tasks, current, onUpdate, guard }: Props) {
                   <TableRow className="hover:bg-transparent">
                     <TableCell />
                     <TableCell colSpan={5} className="pb-4">
-                      <TaskDetails task={task} onUpdate={onUpdate} />
+                      <TaskDetails task={task} onUpdate={onUpdate} readOnly={readOnly} />
                     </TableCell>
                   </TableRow>
                 )}
@@ -194,7 +202,7 @@ export function TaskList({ tasks, current, onUpdate, guard }: Props) {
 }
 
 /** Notes, link and blocker reason; each saves on blur when changed. */
-function TaskDetails({ task, onUpdate }: { task: ReleaseTask; onUpdate: Props['onUpdate'] }) {
+function TaskDetails({ task, onUpdate, readOnly }: { task: ReleaseTask; onUpdate: Props['onUpdate']; readOnly: boolean }) {
   const [linkError, setLinkError] = useState<string | null>(null)
   const safeLink = safeHttpUrl(task.link)
 
@@ -206,7 +214,8 @@ function TaskDetails({ task, onUpdate }: { task: ReleaseTask; onUpdate: Props['o
           key={`notes-${task.notes}`}
           defaultValue={task.notes ?? ''}
           rows={3}
-          placeholder="Add context for the team…"
+          readOnly={readOnly}
+          placeholder={readOnly ? 'No notes' : 'Add context for the team…'}
           className="text-sm font-normal"
           onBlur={(e) => {
             const value = e.target.value.trim() || null
@@ -223,6 +232,7 @@ function TaskDetails({ task, onUpdate }: { task: ReleaseTask; onUpdate: Props['o
             type="url"
             defaultValue={task.link ?? ''}
             placeholder="https://…"
+            readOnly={readOnly}
             aria-invalid={linkError ? true : undefined}
             className="h-8 text-sm font-normal"
             onBlur={(e) => {
@@ -253,6 +263,7 @@ function TaskDetails({ task, onUpdate }: { task: ReleaseTask; onUpdate: Props['o
             autoFocus={!task.blocker_reason}
             defaultValue={task.blocker_reason ?? ''}
             placeholder="What is blocking this step?"
+            readOnly={readOnly}
             className="h-8 text-sm font-normal"
             onBlur={(e) => {
               const value = e.target.value.trim() || null

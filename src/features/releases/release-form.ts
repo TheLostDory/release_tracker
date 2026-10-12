@@ -11,7 +11,6 @@ export function validateRelease(values: ReleaseInput): ReleaseFormErrors {
   else if (name.length > 100) errors.name = 'Keep the name under 100 characters.'
   if (!version) errors.version = 'Version is required.'
   else if (version.length > 50) errors.version = 'Keep the version under 50 characters.'
-  if (!values.sprint_id) errors.sprint_id = 'Sprint is required.'
   if (!values.planned_deployment_date) errors.planned_deployment_date = 'Target deployment date is required.'
   if ((values.description?.length ?? 0) > 10_000) errors.description = 'Description is too long.'
   return errors
@@ -25,6 +24,7 @@ export function normalizeRelease(values: ReleaseInput): ReleaseInput {
     name: values.name.trim(),
     version: values.version.trim(),
     owner_id: values.owner_id || null,
+    sprint_id: values.sprint_id || null,
     description: description || null,
   }
 }

@@ -12,26 +12,36 @@ import { RELEASE_LIST_LIMIT, type ReleaseListItem } from '@/features/releases/ap
 import { useOpenCreateRelease } from '@/features/releases/create-release-context'
 import { useReleases } from '@/features/releases/queries'
 import { ReleaseTable, ReleaseTableSkeleton } from '@/features/releases/release-table'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { useCurrentSprint } from '@/features/sprints/current-sprint-context'
 
 const ALL = 'all'
+const NONE = 'none'
 
 function matches(r: ReleaseListItem, q: string): boolean {
-  return [r.name, r.version, r.sprint.name, r.owner?.name ?? ''].some((v) => v.toLowerCase().includes(q))
+  return [r.name, r.version, r.sprint?.name ?? '', r.owner?.name ?? ''].some((v) => v.toLowerCase().includes(q))
 }
 
 export default function ReleasesPage() {
   const [params, setParams] = useSearchParams()
+  const { currentProject, permissions } = useCurrentProject()
   const { sprints, currentSprint } = useCurrentSprint()
   const openCreateRelease = useOpenCreateRelease()
+  const sprintsEnabled = !!currentProject?.sprints_enabled
 
   // Filters live in the URL so views can be shared and survive reloads.
-  const sprintParam = params.get('sprint') ?? currentSprint?.id ?? ALL
+  const sprintParam = sprintsEnabled ? (params.get('sprint') ?? currentSprint?.id ?? ALL) : ALL
   const sprintId = sprintParam === ALL ? undefined : sprintParam
   const q = params.get('q') ?? ''
   const deferredQ = useDeferredValue(q.trim().toLowerCase())
 
-  const { data, isLoading, error, refetch } = useReleases({ sprintId }, { enabled: sprintParam === ALL || !!sprintId })
+  const { data, isLoading, error, refetch } = useReleases(
+    { projectId: currentProject?.id, sprintId },
+    { enabled: !!currentProject },
+  )
+  const newRelease = permissions.canEdit
+    ? () => openCreateRelease({ sprintId: sprintId && sprintId !== NONE ? sprintId : undefined })
+    : undefined
   const filtered = useMemo(() => (deferredQ ? data?.filter((r) => matches(r, deferredQ)) : data), [data, deferredQ])
 
   function setParam(key: string, value: string) {
@@ -52,20 +62,24 @@ export default function ReleasesPage() {
       <PageHeader
         title="Releases"
         actions={
-          <Button size="sm" onClick={() => openCreateRelease({ sprintId })}>
-            <Plus />
-            New release
-          </Button>
+          newRelease && (
+            <Button size="sm" onClick={newRelease}>
+              <Plus />
+              New release
+            </Button>
+          )
         }
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        {sprintsEnabled && (
         <Select value={sprintParam} onValueChange={(v) => setParam('sprint', v)}>
           <SelectTrigger size="sm" className="w-44" aria-label="Filter by sprint">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All sprints</SelectItem>
+            <SelectItem value={NONE}>No sprint</SelectItem>
             {sprints.map((s) => (
               <SelectItem key={s.id} value={s.id}>
                 {s.name}
@@ -73,6 +87,7 @@ export default function ReleasesPage() {
             ))}
           </SelectContent>
         </Select>
+        )}
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -100,18 +115,20 @@ export default function ReleasesPage() {
         <EmptyState
           icon={Rocket}
           title="No releases"
-          description={sprintId ? 'This sprint has no releases yet.' : 'Create the first release to get started.'}
+          description={sprintId ? 'No releases match this sprint filter.' : 'Create the first release to get started.'}
           action={
-            <Button size="sm" onClick={() => openCreateRelease({ sprintId })}>
-              <Plus />
-              New release
-            </Button>
+            newRelease && (
+              <Button size="sm" onClick={newRelease}>
+                <Plus />
+                New release
+              </Button>
+            )
           }
         />
       ) : !filtered?.length ? (
         <EmptyState icon={Search} title="No matches" description={`Nothing matches “${q}”.`} />
       ) : (
-        <ReleaseTable releases={filtered} showSprint={!sprintId} />
+        <ReleaseTable releases={filtered} showSprint={sprintsEnabled && !sprintId} />
       )}
     </>
   )

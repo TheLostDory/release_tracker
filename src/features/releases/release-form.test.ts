@@ -3,6 +3,7 @@ import type { ReleaseInput } from './api'
 import { normalizeRelease, targetOutsideSprint, validateRelease } from './release-form'
 
 const valid: ReleaseInput = {
+  project_id: 'p1',
   sprint_id: 's1',
   name: 'RC_1',
   version: '1.4.0',
@@ -17,8 +18,9 @@ describe('validateRelease', () => {
   })
 
   it('flags missing required fields', () => {
-    const errors = validateRelease({ ...valid, name: '  ', version: '', sprint_id: '', planned_deployment_date: '' })
-    expect(Object.keys(errors).sort()).toEqual(['name', 'planned_deployment_date', 'sprint_id', 'version'])
+    const errors = validateRelease({ ...valid, name: '  ', version: '', sprint_id: null, planned_deployment_date: '' })
+    // Sprint is optional (projects can work without sprints).
+    expect(Object.keys(errors).sort()).toEqual(['name', 'planned_deployment_date', 'version'])
   })
 })
 

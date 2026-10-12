@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Link, useParams } from 'react-router'
 import { Layers, Plus, Rocket } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
@@ -13,7 +13,8 @@ import { useOpenCreateRelease } from '@/features/releases/create-release-context
 import { useReleases } from '@/features/releases/queries'
 import { summarizeRelease } from '@/features/releases/release-summary'
 import { ReleaseTable, ReleaseTableSkeleton } from '@/features/releases/release-table'
-import { useSprints } from '@/features/sprints/queries'
+import { useCurrentProject } from '@/features/projects/current-project-context'
+import { useSprint } from '@/features/sprints/queries'
 import { SprintActions } from '@/features/sprints/sprint-actions'
 import { useToday } from '@/hooks/use-today'
 import { formatDayRange, parseDay } from '@/lib/dates'
@@ -22,8 +23,12 @@ import type { ReleaseStatus } from '@/types/domain'
 
 export default function SprintDetailPage() {
   const { sprintId = '' } = useParams()
-  const { data: sprints, isLoading } = useSprints()
-  const sprint = sprints?.find((s) => s.id === sprintId)
+  const { data: sprint, isLoading } = useSprint(sprintId)
+  const { currentProject, setCurrentProjectId, permissions } = useCurrentProject()
+  // Opened from another project (link/search): switch to it.
+  useEffect(() => {
+    if (sprint && sprint.project_id !== currentProject?.id) setCurrentProjectId(sprint.project_id)
+  }, [sprint, currentProject?.id, setCurrentProjectId])
   const openCreateRelease = useOpenCreateRelease()
   const releases = useReleases({ sprintId }, { enabled: !!sprint })
   const today = useToday()
@@ -82,10 +87,12 @@ export default function SprintDetailPage() {
         }
         actions={
           <>
-            <Button size="sm" onClick={() => openCreateRelease({ sprintId: sprint.id })}>
-              <Plus />
-              New release
-            </Button>
+            {permissions.canEdit && (
+              <Button size="sm" onClick={() => openCreateRelease({ sprintId: sprint.id })}>
+                <Plus />
+                New release
+              </Button>
+            )}
             <SprintActions sprint={sprint} afterDelete="/sprints" />
           </>
         }

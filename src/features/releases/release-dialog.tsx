@@ -15,7 +15,8 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuth } from '@/features/auth/auth-context'
-import { useProfiles } from '@/features/profiles/queries'
+import { useCurrentProject } from '@/features/projects/current-project-context'
+import { useProjectMembers } from '@/features/projects/queries'
 import { useCurrentSprint } from '@/features/sprints/current-sprint-context'
 import { formatDayRange } from '@/lib/dates'
 import { RELEASE_STATUS_LABELS } from '@/lib/status-labels'
@@ -27,6 +28,7 @@ import { normalizeRelease, targetOutsideSprint, validateRelease, type ReleaseFor
 
 /** Radix Select can't use "" as a value. */
 const UNASSIGNED = '__unassigned'
+const NO_SPRINT = '__no_sprint'
 const AUTOMATIC = '__automatic'
 const OVERRIDE_OPTIONS = Object.keys(RELEASE_STATUS_LABELS) as ReleaseStatus[]
 
@@ -62,7 +64,11 @@ function ReleaseForm({
   const navigate = useNavigate()
   const { user } = useAuth()
   const { sprints, currentSprint } = useCurrentSprint()
-  const { data: profiles = [] } = useProfiles()
+  const { currentProject } = useCurrentProject()
+  const projectId = release?.project_id ?? currentProject?.id ?? ''
+  const sprintsEnabled = !!currentProject?.sprints_enabled
+  const { data: members = [] } = useProjectMembers(projectId)
+  const profiles = members.flatMap((m) => (m.profile ? [m.profile] : []))
   const create = useCreateRelease()
   const update = useUpdateRelease()
   const pending = create.isPending || update.isPending
@@ -70,7 +76,8 @@ function ReleaseForm({
   const [values, setValues] = useState<ReleaseInput>(() =>
     release
       ? {
-          sprint_id: release.sprint.id,
+          project_id: release.project_id,
+          sprint_id: release.sprint?.id ?? null,
           name: release.name,
           version: release.version,
           owner_id: release.owner?.id ?? null,
@@ -78,7 +85,8 @@ function ReleaseForm({
           description: release.description,
         }
       : {
-          sprint_id: defaultSprintId ?? currentSprint?.id ?? '',
+          project_id: currentProject?.id ?? '',
+          sprint_id: sprintsEnabled ? (defaultSprintId ?? currentSprint?.id ?? null) : null,
           name: '',
           version: '',
           owner_id: user?.id ?? null,
@@ -105,10 +113,12 @@ function ReleaseForm({
     const input = normalizeRelease(values)
     try {
       if (release) {
+        // A release never moves between projects.
+        const { project_id: _project, ...editable } = input
         await update.mutateAsync({
           id: release.id,
           patch: {
-            ...input,
+            ...editable,
             status_override: override,
             status_override_reason: override ? overrideReason.trim() || null : null,
           },
@@ -117,7 +127,7 @@ function ReleaseForm({
         onDone()
       } else {
         const { id } = await create.mutateAsync(input)
-        toast.success(`${input.name} created with 12 workflow steps`)
+        toast.success(`${input.name} created`)
         onDone()
         navigate(`/releases/${id}`)
       }
@@ -133,7 +143,7 @@ function ReleaseForm({
         <DialogDescription>
           {release
             ? 'Workflow steps are not affected.'
-            : 'All 12 workflow steps are created automatically as Not started.'}
+            : `The project's ${currentProject?.enabled_steps.length ?? 12} workflow steps are created automatically as Not started.`}
         </DialogDescription>
       </DialogHeader>
 
@@ -157,22 +167,28 @@ function ReleaseForm({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Sprint" error={errors.sprint_id}>
-          {(p) => (
-            <Select value={values.sprint_id} onValueChange={(v) => set('sprint_id', v)}>
-              <SelectTrigger {...p} className="w-full">
-                <SelectValue placeholder="Select sprint" />
-              </SelectTrigger>
-              <SelectContent>
-                {sprints.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </FormField>
+        {sprintsEnabled && (
+          <FormField label="Sprint" error={errors.sprint_id}>
+            {(p) => (
+              <Select
+                value={values.sprint_id ?? NO_SPRINT}
+                onValueChange={(v) => set('sprint_id', v === NO_SPRINT ? null : v)}
+              >
+                <SelectTrigger {...p} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_SPRINT}>No sprint</SelectItem>
+                  {sprints.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FormField>
+        )}
         <FormField label="Owner">
           {(p) => (
             <Select

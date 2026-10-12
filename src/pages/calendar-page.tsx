@@ -22,6 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Agenda } from '@/features/calendar/agenda'
 import { EventChip, EventLegend } from '@/features/calendar/event-chip'
 import { useCalendarEvents } from '@/features/calendar/use-calendar-events'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { useReleases } from '@/features/releases/queries'
 import { useToday } from '@/hooks/use-today'
 import { dayRange, formatDay, parseDay, toDayString, type DayString } from '@/lib/dates'
@@ -47,10 +48,12 @@ export default function CalendarPage() {
   const gridStart = toDayString(startOfWeek(month, WEEK))
   const gridEnd = toDayString(endOfWeek(endOfMonth(month), WEEK))
 
+  const { currentProject } = useCurrentProject()
   const releases = useReleases({
+    projectId: currentProject?.id,
     deploymentFrom: gridStart,
     deploymentTo: toDayString(addDays(parseDay(gridEnd), LOOKAHEAD_DAYS)),
-  })
+  }, { enabled: !!currentProject })
   const { byDay, conflicts, ownerNames, today } = useCalendarEvents(releases.data)
   const days = useMemo(() => dayRange(gridStart, gridEnd), [gridStart, gridEnd])
   const monthDays = useMemo(() => days.filter((d) => isSameMonth(parseDay(d), month)), [days, month])

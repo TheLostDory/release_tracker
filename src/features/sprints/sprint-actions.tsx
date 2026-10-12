@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { toUserMessage } from '@/lib/supabase-errors'
 import type { SprintStatus, SprintWithCount } from '@/types/domain'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { useDeleteSprint, useUpdateSprint } from './queries'
 import { SprintDialog } from './sprint-dialog'
 
@@ -26,7 +27,8 @@ export function SprintActions({ sprint, afterDelete }: Props) {
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const update = useUpdateSprint()
+  const { currentProject, permissions } = useCurrentProject()
+  const update = useUpdateSprint(currentProject?.id ?? '')
   const remove = useDeleteSprint()
 
   function setStatus(status: SprintStatus) {
@@ -48,6 +50,7 @@ export function SprintActions({ sprint, afterDelete }: Props) {
   }
 
   const hasReleases = sprint.release_count > 0
+  if (!permissions.canEdit) return null
 
   return (
     <>
@@ -74,7 +77,8 @@ export function SprintActions({ sprint, afterDelete }: Props) {
               Mark completed
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
+          {permissions.canDelete && <DropdownMenuSeparator />}
+          {permissions.canDelete && (
           <DropdownMenuItem
             variant="destructive"
             disabled={hasReleases}
@@ -84,6 +88,7 @@ export function SprintActions({ sprint, afterDelete }: Props) {
             <Trash2 />
             {hasReleases ? 'Delete (has releases)' : 'Delete'}
           </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

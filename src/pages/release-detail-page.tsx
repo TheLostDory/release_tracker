@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { ArrowRight, Rocket } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
@@ -7,6 +7,7 @@ import { PageTitle } from '@/components/page-title'
 import { ReleaseStatusBadge } from '@/components/status-badges'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { DueDate } from '@/features/releases/due-date'
 import {
   useRelease,
@@ -25,6 +26,7 @@ import { TaskList } from '@/features/releases/workflow/task-list'
 import { WorkflowTimeline } from '@/features/releases/workflow/workflow-timeline'
 import { useToday } from '@/hooks/use-today'
 import { formatDay, formatTimestamp, parseDay } from '@/lib/dates'
+import { permissionsFor } from '@/lib/permissions'
 import { cn } from '@/lib/utils'
 
 export default function ReleaseDetailPage() {
@@ -37,6 +39,16 @@ export default function ReleaseDetailPage() {
   const [guard, guardDialog] = useDependencyGuard()
   const today = useToday()
   const summary = useMemo(() => (release ? summarizeRelease(release, parseDay(today)) : null), [release, today])
+  const { projects, currentProject, setCurrentProjectId } = useCurrentProject()
+  // Opening a release from another project (link, search, notification)
+  // switches the app to that project so navigation and context match.
+  const releaseProjectId = release?.project_id
+  useEffect(() => {
+    if (releaseProjectId && releaseProjectId !== currentProject?.id) setCurrentProjectId(releaseProjectId)
+  }, [releaseProjectId, currentProject?.id, setCurrentProjectId])
+  const project = projects.find((p) => p.id === releaseProjectId)
+  const permissions = permissionsFor(project?.role)
+  const readOnly = !permissions.canEdit
 
   if (isLoading) {
     return (
@@ -84,15 +96,25 @@ export default function ReleaseDetailPage() {
             {release.description && <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{release.description}</p>}
           </div>
           <div className="flex items-center gap-2">
-            <ReleaseActions release={release} />
+            {readOnly ? (
+              <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">View only</span>
+            ) : (
+              <ReleaseActions release={release} canDelete={permissions.canDelete} />
+            )}
           </div>
         </div>
 
         <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border p-4 text-sm sm:grid-cols-3 lg:grid-cols-5">
-          <Meta label="Sprint">
-            <Link to={`/sprints/${release.sprint.id}`} className="hover:underline">
-              {release.sprint.name}
-            </Link>
+          <Meta label={release.sprint ? 'Project · Sprint' : 'Project'}>
+            <span className="truncate">{project?.name ?? '—'}</span>
+            {release.sprint && (
+              <>
+                <span className="text-muted-foreground"> · </span>
+                <Link to={`/sprints/${release.sprint.id}`} className="hover:underline">
+                  {release.sprint.name}
+                </Link>
+              </>
+            )}
           </Meta>
           <Meta label="Owner">{release.owner?.name ?? 'Unassigned'}</Meta>
           <Meta label="Target deployment">
@@ -147,6 +169,7 @@ export default function ReleaseDetailPage() {
           current={next?.type ?? null}
           onUpdate={(task, patch) => updateTask.mutate({ task, patch })}
           guard={guard}
+          readOnly={readOnly}
         />
       </Section>
 
@@ -158,6 +181,7 @@ export default function ReleaseDetailPage() {
               tasks={release.tasks}
               onUpdate={(id, patch) => updateReport.mutate({ id, patch })}
               guard={guard}
+              readOnly={readOnly}
             />
           </div>
           {release.approval && (
@@ -166,6 +190,7 @@ export default function ReleaseDetailPage() {
               tasks={release.tasks}
               onUpdate={(id, patch) => updateApproval.mutate({ id, patch })}
               guard={guard}
+              readOnly={readOnly}
             />
           )}
         </div>

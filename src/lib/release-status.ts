@@ -95,13 +95,14 @@ export function computeReleaseStatus({ release, tasks, reports }: StatusInput, t
     risks.push(`Deployment ${targetIn === 0 ? 'today' : `in ${targetIn} day${targetIn === 1 ? '' : 's'}`}, not yet approved`)
   }
 
+  // Only steps this release actually has (projects can turn steps off).
   const beforeApproval = WORKFLOW_STEPS.slice(0, WORKFLOW_STEPS.findIndex((s) => s.type === 'APPROVAL'))
   const readyForApproval =
     approval !== undefined &&
     !isDone(approval.status) &&
     beforeApproval.every((s) => {
       const t = byType.get(s.type)
-      return t !== undefined && isDone(t.status)
+      return t === undefined || isDone(t.status)
     })
   if (readyForApproval) return result('WAITING_FOR_APPROVAL', risks)
 

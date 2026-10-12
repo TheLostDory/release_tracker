@@ -1,16 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { SprintWithCount } from '@/types/domain'
-import { createSprint, deleteSprint, listSprints, updateSprint, type SprintInput } from './api'
+import { createSprint, deleteSprint, getSprint, listSprints, updateSprint, type SprintInput } from './api'
 
 export const sprintKeys = {
   all: ['sprints'] as const,
-  list: () => [...sprintKeys.all, 'list'] as const,
+  list: (projectId: string) => [...sprintKeys.all, 'list', projectId] as const,
+  detail: (id: string) => [...sprintKeys.all, 'detail', id] as const,
 }
 
-export function useSprints() {
+export function useSprint(id: string) {
+  return useQuery({ queryKey: sprintKeys.detail(id), queryFn: () => getSprint(id), enabled: !!id })
+}
+
+export function useSprints(projectId: string | undefined, enabled = true) {
   return useQuery({
-    queryKey: sprintKeys.list(),
-    queryFn: listSprints,
+    queryKey: sprintKeys.list(projectId ?? ''),
+    queryFn: () => listSprints(projectId!),
+    enabled: !!projectId && enabled,
     staleTime: 5 * 60_000,
   })
 }
@@ -24,20 +30,19 @@ export function useCreateSprint() {
 }
 
 /** Optimistic: the list reflects the edit immediately and rolls back on error. */
-export function useUpdateSprint() {
+export function useUpdateSprint(projectId: string) {
   const qc = useQueryClient()
+  const key = sprintKeys.list(projectId)
   return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<SprintInput> }) => updateSprint(id, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Omit<SprintInput, 'project_id'>> }) => updateSprint(id, patch),
     onMutate: async ({ id, patch }) => {
-      await qc.cancelQueries({ queryKey: sprintKeys.list() })
-      const previous = qc.getQueryData<SprintWithCount[]>(sprintKeys.list())
-      qc.setQueryData<SprintWithCount[]>(sprintKeys.list(), (old) =>
-        old?.map((s) => (s.id === id ? { ...s, ...patch } : s)),
-      )
+      await qc.cancelQueries({ queryKey: key })
+      const previous = qc.getQueryData<SprintWithCount[]>(key)
+      qc.setQueryData<SprintWithCount[]>(key, (old) => old?.map((s) => (s.id === id ? { ...s, ...patch } : s)))
       return { previous }
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.previous) qc.setQueryData(sprintKeys.list(), ctx.previous)
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous)
     },
     onSettled: () => void qc.invalidateQueries({ queryKey: sprintKeys.all }),
   })

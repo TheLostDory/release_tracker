@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router'
+import { createBrowserRouter, Navigate } from 'react-router'
 import { RequireAuth } from '@/features/auth/require-auth'
 import RouteError from '@/pages/route-error'
 
@@ -14,6 +14,8 @@ export const router = createBrowserRouter([
       {
         element: <RequireAuth />,
         children: [
+          // Outside the app shell: the user may not belong to any project yet.
+          { path: '/invite/:token', lazy: page(() => import('@/pages/invite-page')) },
           {
             lazy: page(() => import('@/layouts/app-layout')),
             children: [
@@ -27,7 +29,15 @@ export const router = createBrowserRouter([
               { path: 'releases', lazy: page(() => import('@/pages/releases-page')) },
               { path: 'releases/:releaseId', lazy: page(() => import('@/pages/release-detail-page')) },
               { path: 'calendar', lazy: page(() => import('@/pages/calendar-page')) },
-              { path: 'settings', lazy: page(() => import('@/pages/settings-page')) },
+              {
+                path: 'settings',
+                lazy: page(() => import('@/pages/settings/settings-layout')),
+                children: [
+                  { index: true, element: <Navigate to="project" replace /> },
+                  { path: 'project', lazy: page(() => import('@/pages/settings/project-settings-page')) },
+                  { path: 'account', lazy: page(() => import('@/pages/settings/account-settings-page')) },
+                ],
+              },
               { path: '*', lazy: page(() => import('@/pages/not-found-page')) },
                 ],
               },

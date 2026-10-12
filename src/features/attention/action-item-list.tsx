@@ -23,9 +23,18 @@ interface Props {
   emptyLabel?: string
   onNavigate?: () => void
   dense?: boolean
+  /** Prefix items with their project (lists spanning projects). */
+  showProject?: boolean
 }
 
-export function ActionItemList({ items, ownerNames, emptyLabel = 'Nothing needs attention.', onNavigate, dense }: Props) {
+export function ActionItemList({
+  items,
+  ownerNames,
+  emptyLabel = 'Nothing needs attention.',
+  onNavigate,
+  dense,
+  showProject = false,
+}: Props) {
   const prefetch = usePrefetchRelease()
   if (items.length === 0) {
     return (
@@ -56,6 +65,9 @@ export function ActionItemList({ items, ownerNames, emptyLabel = 'Nothing needs 
               <Icon className={cn('mt-0.5 size-4 shrink-0', SEVERITY_ICON_CLASS[item.severity])} aria-hidden />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm">
+                  {showProject && item.projectName && (
+                    <span className="text-muted-foreground">{item.projectName} / </span>
+                  )}
                   <span className="font-medium">{item.releaseName}</span>
                   <span className="text-muted-foreground"> — </span>
                   {item.title}

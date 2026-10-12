@@ -77,7 +77,7 @@ export function ReleaseTable({ releases, showSprint = false }: Props) {
                 )}
               </TableCell>
               {showSprint && (
-                <TableCell className="hidden text-muted-foreground md:table-cell">{r.sprint.name}</TableCell>
+                <TableCell className="hidden text-muted-foreground md:table-cell">{r.sprint?.name ?? '—'}</TableCell>
               )}
               <TableCell className="hidden text-muted-foreground sm:table-cell">{r.owner?.name ?? '—'}</TableCell>
               <TableCell className="tabular-nums">

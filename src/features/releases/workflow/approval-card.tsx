@@ -20,9 +20,10 @@ interface Props {
   tasks: readonly ReleaseTask[]
   onUpdate: (id: string, patch: ApprovalPatch) => void
   guard: (stepName: string, unmet: WorkflowStep[], proceed: () => void) => void
+  readOnly?: boolean
 }
 
-export function ApprovalCard({ approval, tasks, onUpdate, guard }: Props) {
+export function ApprovalCard({ approval, tasks, onUpdate, guard, readOnly = false }: Props) {
   const badge = STATUS_BADGE[approval.status]
 
   function setStatus(status: ApprovalStatus) {
@@ -62,7 +63,8 @@ export function ApprovalCard({ approval, tasks, onUpdate, guard }: Props) {
       <Textarea
         key={`comments-${approval.comments}`}
         aria-label="Approval comments"
-        placeholder="Comments, conditions, approver…"
+        placeholder={readOnly ? 'No comments' : 'Comments, conditions, approver…'}
+        readOnly={readOnly}
         rows={2}
         defaultValue={approval.comments ?? ''}
         className="text-sm"
@@ -72,7 +74,7 @@ export function ApprovalCard({ approval, tasks, onUpdate, guard }: Props) {
         }}
       />
 
-      <div className="mt-auto flex gap-2">
+      <div className={readOnly ? 'hidden' : 'mt-auto flex gap-2'}>
         {approval.status === 'PENDING' ? (
           <>
             <Button size="sm" className="flex-1" onClick={() => setStatus('APPROVED')}>

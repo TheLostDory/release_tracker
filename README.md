@@ -31,7 +31,8 @@ Sign in with a seed user: `charbel@example.com` / `password123`
 | `npm run db:start`  | Start local Supabase                                           |
 | `npm run db:reset`  | Recreate the local DB from migrations + `supabase/seed.sql`    |
 | `npm run db:push`   | Apply new migrations to the linked hosted project              |
-| `npm run db:types`  | Regenerate `src/types/database.ts` from the linked project (`db:types:local` for local) |
+| `npm run db:types`  | Regenerate `src/types/database.ts` from the linked project (`db:types:docker` for the Docker stack) |
+| `npm run smoke`     | End-to-end check of a running backend (needs `SMOKE_URL`, `SMOKE_KEY`; see `scripts/smoke-test.mjs`) |
 
 Run `npm run db:types` after every migration change.
 
@@ -51,6 +52,26 @@ src/
   types/           generated DB types + domain types
 ```
 
+## Projects, roles and invitations
+
+Everything lives in a **project** (switcher at the top of the sidebar). Each project has its own sprints, releases, calendar, dashboard and settings (**Settings → Project**):
+
+- **Sprints on/off.** Without sprints, releases belong directly to the project and the dashboard shows open + recently deployed releases.
+- **Workflow:** which steps are used, which reports (Load Test / Longevity / HIT) are reviewed, and whether approval is required. Changes apply to releases created afterwards.
+
+| Role | Can |
+| --- | --- |
+| Viewer | read everything in the project |
+| Member | + create/edit sprints, releases, steps, reports, approvals |
+| Admin | + project settings, invite and remove members, delete sprints/releases |
+| Owner | + delete the project, manage owners (a project always keeps one) |
+
+Invite from **Settings → Project → Invite people** (admins and owners):
+- **By email**: existing users are added immediately; others join automatically when their account is created (`create-user` locally, the dashboard on hosted Supabase).
+- **By link**: a role and an expiry (1–30 days). Anyone signed in who opens it joins. Only a SHA-256 hash is stored; revoke anytime.
+
+Roles are enforced in Postgres (RLS + the membership functions in `supabase/migrations/20261013000000_projects.sql`); the UI only hides what you can't do.
+
 ## Run everything locally with Docker
 
 One command, no Supabase account, no Node on the host. Only Docker:
@@ -59,7 +80,7 @@ One command, no Supabase account, no Node on the host. Only Docker:
 docker compose up -d --build
 ```
 
-Then open **http://localhost:8800** and sign in with a demo user: `charbel@example.com` / `password123`.
+Then open **http://localhost:8800** and sign in with a demo user: `charbel@example.com` / `password123` (all demo users share it). The demo has two projects: *Release Tracker* (sprints, full workflow) and *Mobile App* (no sprints, HIT only, no approval; `omar@example.com` is a viewer there).
 
 The first run builds the app and initialises the database (a few minutes, mostly downloads). Later runs start in seconds. Data persists in the `db-data` volume.
 
@@ -165,13 +186,13 @@ location /assets/ {
 
 ## Security checklist
 
-- **Sign-ups disabled.** Every authenticated user has full access (`has_app_access()`), so accounts must be invite-only. In the Supabase dashboard go to Authentication → Sign In / Providers, turn off "Allow new users to sign up", and invite users from Authentication → Users. Already set for local dev in `config.toml`.
+- **Sign-ups disabled.** Accounts are created by an admin; access to data is per project and per role (see *Projects, roles and invitations*), enforced by RLS. In the Supabase dashboard go to Authentication → Sign In / Providers, turn off "Allow new users to sign up", and invite users from Authentication → Users. Already set for local dev in `config.toml`.
 - **Passwords:** minimum 10 characters, letters + digits, leaked-password protection on, "secure password change" on.
 - **Never ship the service-role key** to the browser. Only the publishable key goes in `VITE_*` variables; row-level security protects the data.
 - **RLS is enabled on every table.** There are no DELETE policies and the activity log is append-only.
 - **User-entered links** (task links, report URLs) must be `http(s)`, enforced by `public.is_http_url()` in the database and `safeHttpUrl()` in the UI.
 - **CSP:** scripts only from the app's own origin; network only to the app and Supabase.
-- To restrict access to a group later (roles, an email domain, SSO), change `public.has_app_access()`.
+- Project roles live in `project_members`; extend the checks in `20261013000000_projects.sql` for finer permissions.
 
 ## Conventions
 
@@ -179,7 +200,7 @@ location /assets/ {
 - **Workflow creation.** Inserting a release runs a DB trigger that creates the 12 workflow tasks, 3 report rows and the approval row. The step list is mirrored in `src/lib/workflow.ts`.
 - **Overall status** is computed client-side from tasks, reports and today's date. Only an optional manual `status_override` is stored.
 - **Activity log** is written by DB triggers on releases, tasks, reports and approvals.
-- **Authorization** goes through `public.has_app_access()`. Today that means any authenticated user; add roles there.
+- **Authorization** is per project: `project_members.role` checked by RLS (`my_project_ids()` / `my_release_ids()`), and membership changes only through security-definer functions.
 - **Status, next action, action items, calendar events** are pure functions in `src/lib/` (`release-status.ts`, `action-items.ts`, `calendar-events.ts`) with unit tests. Change the rules there.
 - **Search** (`⌘K`) uses the `search_releases` SQL function (name, version, sprint, owner; RLS applies; signed-in users only).
 - **Notifications** are derived action items (`src/lib/action-items.ts`) with stable ids, ready for a future email/Slack/Teams job.
