@@ -21,7 +21,9 @@ case "$arch" in
   *) echo "arch must be amd64 or arm64" >&2; exit 1 ;;
 esac
 platform="linux/$arch"
-out="release-tracker-images-$arch.tar.gz"
+# Bundle goes to the directory you run this from; builds run from the repo root.
+out="$(pwd)/release-tracker-images-$arch.tar.gz"
+cd "$(dirname "$0")/.."
 
 upstream="
 public.ecr.aws/supabase/postgres:17.11.0.004
@@ -31,9 +33,21 @@ public.ecr.aws/supabase/realtime:v2.140.10
 nginx:stable-alpine
 "
 
+# Retries: large layers over flaky connections can drop mid-download.
+# Completed layers are kept, so each retry resumes.
+pull() {
+  for attempt in 1 2 3 4 5; do
+    if docker pull --quiet --platform "$platform" "$1"; then return 0; fi
+    echo "    pull failed (attempt $attempt), retrying in 10s…" >&2
+    sleep 10
+  done
+  echo "Could not download $1. Check the connection and run again." >&2
+  return 1
+}
+
 echo "==> Pulling upstream images for $platform"
 for image in $upstream; do
-  docker pull --quiet --platform "$platform" "$image"
+  pull "$image"
 done
 
 # Build for both platforms so the tags keep working on this machine too.
