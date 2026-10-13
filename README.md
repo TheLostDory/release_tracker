@@ -115,6 +115,8 @@ docker compose up -d                                  # no --build: uses the loa
 
 Use `--build` again only when you have internet (it rebuilds the app from source).
 
+Load **only the bundle matching the machine's CPU**: loading the other one re-points the image names to that architecture, and the stack would then run under emulation (Realtime fails there). If that happens with internet available, `docker compose up -d --build` restores native images.
+
 Windows: run the command in PowerShell or Windows Terminal from the unzipped folder. If port 8800 or 54329 is taken, set `APP_PORT` / `DB_PORT`, e.g. `$env:APP_PORT=8900; docker compose up -d --build`.
 
 Common tasks:
