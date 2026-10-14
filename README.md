@@ -4,20 +4,38 @@ Internal tool for tracking release candidates from identification through deploy
 
 React + TypeScript + Vite SPA, Tailwind CSS + shadcn/ui, TanStack Query, React Router, Supabase (Postgres, Auth).
 
-## Getting started
+## Quick start (just run the app)
 
-Prerequisites: Node 20+, Docker (for the local Supabase stack).
+You only need **Docker** (Docker Desktop, Rancher Desktop or Podman Desktop), **running**. No Node, no npm.
+
+1. Start your Docker app and wait until it says it's running (`docker info` should not error).
+2. In this folder:
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+3. Open **http://localhost:8800** and sign in with `charbel@example.com` / `password123`, or create an account.
+
+No internet on this machine? See *Run everything locally with Docker → Install on another computer* for the offline bundle.
+
+Stop with `docker compose down` (data is kept). Details, options and troubleshooting are below.
+
+**"Cannot connect to the Docker daemon / Is the docker daemon running?"** means the Docker app isn't started yet. Open it, wait for it to finish starting, and run the command again.
+
+## Developing (code changes with hot reload)
+
+For working on the code, not for using the app. Prerequisites: Node 22+, Docker running.
 
 ```bash
 npm install
-npm run db:start          # starts local Supabase, applies migrations + seed
+npm run db:start          # local Supabase via the Supabase CLI (separate from the Docker stack above)
 cp .env.example .env.local
 # paste the "Publishable" key printed by db:start into VITE_SUPABASE_PUBLISHABLE_KEY
 npm run dev               # http://localhost:5173
 ```
 
-Sign in with a seed user: `charbel@example.com` / `password123`
-(also `john@`, `maya@`, `omar@example.com`, same password).
+Seed users: `charbel@example.com` / `password123` (also `john@`, `maya@`, `omar@example.com`, same password).
 
 ## Scripts
 
