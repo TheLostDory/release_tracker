@@ -77,6 +77,8 @@ function refreshAfterWrite(qc: QueryClient, releaseId?: string) {
   if (releaseId) {
     void qc.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) })
     void qc.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) })
+    // Jenkins builds also notify (key literal avoids a circular import).
+    void qc.invalidateQueries({ queryKey: ['integrations', 'jenkins', releaseId] })
   }
 }
 

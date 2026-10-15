@@ -7,6 +7,8 @@ import { PageTitle } from '@/components/page-title'
 import { ReleaseStatusBadge } from '@/components/status-badges'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { JenkinsSection } from '@/features/integrations/jenkins-section'
+import { JiraSection } from '@/features/integrations/jira-section'
 import { useCurrentProject } from '@/features/projects/current-project-context'
 import { DueDate } from '@/features/releases/due-date'
 import {
@@ -195,6 +197,9 @@ export default function ReleaseDetailPage() {
           )}
         </div>
       </Section>
+
+      <JiraSection release={release} canEdit={!readOnly} />
+      <JenkinsSection release={release} canEdit={!readOnly} />
 
       <Section title="Activity">
         <ActivityFeed releaseId={release.id} />

@@ -30,6 +30,8 @@ const release = (): ReleaseDetail => ({
   status_override_reason: null,
   created_at: NOW,
   project_id: 'p',
+  jira_version_id: null,
+  jira_version_name: null,
   sprint: { id: 's', name: 'S', start_date: '2026-10-05', end_date: '2026-10-16' },
   owner: null,
   tasks: [task({ id: 'hit', task_type: 'HIT_REVIEW', name: 'HIT review' }), task({ id: 'ap', task_type: 'APPROVAL', name: 'Approval' })],

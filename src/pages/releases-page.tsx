@@ -1,6 +1,6 @@
-import { useDeferredValue, useMemo } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { Plus, Rocket, Search } from 'lucide-react'
+import { Download, Plus, Rocket, Search } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
 import { PageTitle } from '@/components/page-title'
@@ -12,6 +12,8 @@ import { RELEASE_LIST_LIMIT, type ReleaseListItem } from '@/features/releases/ap
 import { useOpenCreateRelease } from '@/features/releases/create-release-context'
 import { useReleases } from '@/features/releases/queries'
 import { ReleaseTable, ReleaseTableSkeleton } from '@/features/releases/release-table'
+import { ImportJiraDialog } from '@/features/integrations/import-jira-dialog'
+import { useConnected } from '@/features/integrations/queries'
 import { useCurrentProject } from '@/features/projects/current-project-context'
 import { useCurrentSprint } from '@/features/sprints/current-sprint-context'
 
@@ -39,6 +41,8 @@ export default function ReleasesPage() {
     { projectId: currentProject?.id, sprintId },
     { enabled: !!currentProject },
   )
+  const { jira } = useConnected(currentProject?.id)
+  const [importing, setImporting] = useState(false)
   const newRelease = permissions.canEdit
     ? () => openCreateRelease({ sprintId: sprintId && sprintId !== NONE ? sprintId : undefined })
     : undefined
@@ -63,10 +67,18 @@ export default function ReleasesPage() {
         title="Releases"
         actions={
           newRelease && (
-            <Button size="sm" onClick={newRelease}>
-              <Plus />
-              New release
-            </Button>
+            <>
+              {jira && (
+                <Button size="sm" variant="outline" onClick={() => setImporting(true)}>
+                  <Download />
+                  Import from Jira
+                </Button>
+              )}
+              <Button size="sm" onClick={newRelease}>
+                <Plus />
+                New release
+              </Button>
+            </>
           )
         }
       />
@@ -130,6 +142,7 @@ export default function ReleasesPage() {
       ) : (
         <ReleaseTable releases={filtered} showSprint={sprintsEnabled && !sprintId} />
       )}
+      <ImportJiraDialog open={importing} onOpenChange={setImporting} />
     </>
   )
 }

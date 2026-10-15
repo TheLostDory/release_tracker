@@ -80,6 +80,7 @@ const LIST_SQL = `
 const DETAIL_SQL = `
   select r.id, r.name, r.version, r.description, r.planned_deployment_date, r.actual_deployment_date,
          r.status_override, r.status_override_reason, r.created_at, r.project_id,
+         r.jira_version_id, r.jira_version_name,
          case when s.id is null then null else json_build_object(
            'id', s.id, 'name', s.name, 'start_date', s.start_date, 'end_date', s.end_date) end as sprint,
          case when o.id is null then null else json_build_object('id', o.id, 'name', o.name) end as owner,

@@ -88,7 +88,8 @@ npm run dev                     # web app on http://localhost:5173 (proxies /api
 ```
 server/
   index.ts, app.ts       Express app: security headers, CSRF guard, auth, routes, static files
-  routes/                auth, projects (members, invitations), releases (sprints, steps, reports, approvals, search)
+  routes/                auth, projects (members, invitations), releases (sprints, steps, reports, approvals, search), integrations
+  integrations/          Jira + Jenkins clients, encrypted credentials, Jenkins poller
   realtime.ts            live updates: Postgres LISTEN/NOTIFY → Server-Sent Events
   auth/                  scrypt passwords, cookie sessions
   db/migrations/         SQL schema (tables, triggers, RLS, membership functions)
@@ -116,6 +117,9 @@ src/
 | `GET/PATCH/DELETE /releases/:id`, `GET /releases/:id/activity`, `GET /releases/:id/events` (SSE) | one release |
 | `PATCH /tasks/:id` `/reports/:id` `/approvals/:id` | workflow edits |
 | `GET /search?q=`, `GET /users`, `PATCH /me` | search, people, your name |
+| `GET /projects/:id/integrations`, `PUT/DELETE …/integrations/{jira,jenkins}`, `POST …/test` | connections (admins) |
+| `GET /projects/:id/jira/versions`, `POST /projects/:id/jira/import`, `PUT /releases/:id/jira`, `GET /releases/:id/jira/issues` | Jira |
+| `GET/POST /releases/:id/jenkins`, `POST /releases/:id/jenkins/sync`, `DELETE /jenkins/jobs/:id`, `GET …/builds`, `POST …/run` | Jenkins |
 
 ## Projects, roles and invitations
 
@@ -136,6 +140,32 @@ Invite from **Settings → Project → Invite people** (admins and owners):
 - **By link**: a role and an expiry (1–30 days). Anyone who opens it joins after signing in, or after creating an account (they're brought back to the invite). Only a SHA-256 hash is stored; revoke anytime.
 
 Roles are enforced by Postgres (RLS + the membership functions in `server/db/migrations/0001_baseline.sql`); the UI only hides what you can't do.
+
+## Jira and Jenkins
+
+Connect per project in **Settings → Project → Integrations** (admins and owners). Saving tests the connection first. Tokens are encrypted with `ENCRYPTION_KEY` (AES-256-GCM) and never sent back to the browser. The API's database login can't even read them; changing `ENCRYPTION_KEY` means re-entering them.
+
+| | Jira Cloud | Jira Server / Data Center | Jenkins |
+| --- | --- | --- | --- |
+| URL | `https://yourcompany.atlassian.net` | your Jira's base URL | your Jenkins' base URL |
+| Credentials | account email + API token (id.atlassian.com → Security → API tokens) | personal access token (profile → Personal Access Tokens) | user + API token (user → Security → API Token) |
+| Also | Jira project key (e.g. `ABC`) | Jira project key | — |
+
+**Jira**
+- **Releases → Import from Jira**: pick versions; each becomes a release (name/version from Jira, target from its release date).
+- **Release page → Jira**: link a version (or unlink); see its issues (key, type, status, priority, assignee) with done / in progress / to do counts. Cached for a minute; ↻ refreshes.
+
+**Jenkins** (release page → Jenkins → *Link job*: job path like `folder/job` or the job's URL, a purpose, optional `KEY=value` build parameters where `{{version}}` / `{{name}}` are filled in):
+
+| Purpose | Effect |
+| --- | --- |
+| Automated jobs | latest builds of all such jobs drive the *Automated jobs* step: all passing → completed, any failing → blocked (with job and build), running → in progress |
+| Load Test / Longevity / HIT report | a successful build's first HTML artifact (or the build page) becomes that report's link; the PASS/FAIL review stays with people |
+| Other | shown with its builds only |
+
+Each job shows its latest build and history and has a **Run** button (members+). The server checks linked jobs of undeployed releases **every 2 minutes**, plus *Sync now*. Changes appear in the activity log as *Jenkins*.
+
+**Network:** the app container calls Jira/Jenkins directly, so your machine must be able to reach them (e.g. be on the company VPN). Redirects aren't followed (credentials are never re-sent to another host), so use the final URL.
 
 ## Testing
 

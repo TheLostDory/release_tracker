@@ -1,5 +1,6 @@
 import { PageTitle } from '@/components/page-title'
 import { useCurrentProject } from '@/features/projects/current-project-context'
+import { IntegrationsSection } from '@/features/integrations/integrations-section'
 import { DangerSection } from '@/features/projects/settings/danger-section'
 import { GeneralSection } from '@/features/projects/settings/general-section'
 import { InvitationsSection } from '@/features/projects/settings/invitations-section'
@@ -15,6 +16,7 @@ export default function ProjectSettingsPage() {
       <PageTitle title={`${project.name} settings`} />
       <GeneralSection project={project} canManage={permissions.canManage} />
       <WorkflowSection project={project} canManage={permissions.canManage} />
+      <IntegrationsSection project={project} canManage={permissions.canManage} />
       <MembersSection project={project} />
       {permissions.canManage && <InvitationsSection project={project} />}
       <DangerSection project={project} />

@@ -101,6 +101,8 @@ export interface ReleaseDetail {
   status_override_reason: string | null
   created_at: string
   project_id: string
+  jira_version_id: string | null
+  jira_version_name: string | null
   sprint: { id: string; name: string; start_date: string; end_date: string } | null
   owner: ProfileSummary | null
   tasks: ReleaseTask[]
