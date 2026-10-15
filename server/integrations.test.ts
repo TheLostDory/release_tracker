@@ -1,0 +1,187 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { fakeJenkins, fakeJira, JENKINS, JIRA } from './test/fakes.js'
+import { client, remote, startServer } from './test/harness.js'
+
+/** Jira + Jenkins integrations against fake servers (local test DB only). */
+describe.skipIf(remote)('integrations', () => {
+  let server: Awaited<ReturnType<typeof startServer>>
+  let jira: Awaited<ReturnType<typeof fakeJira>>
+  let jenkins: Awaited<ReturnType<typeof fakeJenkins>>
+  const owner = () => {
+    const c = client(server.base)
+    return c.login('charbel@example.com').then(() => c)
+  }
+  let projectId: string
+
+  beforeAll(async () => {
+    ;[server, jira, jenkins] = await Promise.all([startServer(), fakeJira(), fakeJenkins()])
+    const c = await owner()
+    projectId = (await c.post('/api/projects', { name: `Integrations ${Date.now()}`, sprintsEnabled: false })).body.id
+  })
+  afterAll(async () => {
+    await Promise.all([server?.stop(), jira?.close(), jenkins?.close()])
+  })
+
+  it('connects Jira (Cloud) after testing credentials; never returns the secret', async () => {
+    const c = await owner()
+    const bad = await c.put(`/api/projects/${projectId}/integrations/jira`, {
+      authType: 'JIRA_CLOUD', baseUrl: jira.url, username: JIRA.email, secret: 'wrong-token', projectKey: 'abc',
+    })
+    expect(bad.status).toBe(502)
+    expect(bad.body.error.message).toMatch(/rejected the credentials/)
+
+    const missingKey = await c.put(`/api/projects/${projectId}/integrations/jira`, {
+      authType: 'JIRA_CLOUD', baseUrl: jira.url, username: JIRA.email, secret: JIRA.token, projectKey: 'NOPE',
+    })
+    expect(missingKey.status).toBe(502)
+
+    const ok = await c.put(`/api/projects/${projectId}/integrations/jira`, {
+      authType: 'JIRA_CLOUD', baseUrl: `${jira.url}/`, username: JIRA.email, secret: JIRA.token, projectKey: 'abc',
+    })
+    expect(ok.status).toBe(200)
+    expect(ok.body.message).toBe('Connected as Release Bot · project Alpha Product (ABC)')
+
+    const list = (await c.get(`/api/projects/${projectId}/integrations`)).body
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ kind: 'JIRA', base_url: jira.url, settings: { projectKey: 'ABC' } })
+    expect(JSON.stringify(list)).not.toContain(JIRA.token)
+    expect(list[0].secret_encrypted).toBeUndefined()
+
+    // Re-saving without a secret keeps the stored one.
+    expect((await c.put(`/api/projects/${projectId}/integrations/jira`, {
+      authType: 'JIRA_CLOUD', baseUrl: jira.url, username: JIRA.email, projectKey: 'ABC',
+    })).status).toBe(200)
+    expect((await c.post(`/api/projects/${projectId}/integrations/jira/test`)).body.message).toBe('Connected as Release Bot')
+  })
+
+  it('lists Jira versions, imports releases and shows their issues', async () => {
+    const c = await owner()
+    const versions = (await c.get(`/api/projects/${projectId}/jira/versions`)).body
+    expect(versions.map((v: any) => v.name)).toEqual(['1.4.0', '1.5.0', '1.3.0'])
+
+    const imported = await c.post(`/api/projects/${projectId}/jira/import`, { versionIds: ['10001', '10002'] })
+    expect(imported.status).toBe(201)
+    expect(imported.body.created).toHaveLength(2)
+    // Importing again skips already-linked versions.
+    expect((await c.post(`/api/projects/${projectId}/jira/import`, { versionIds: ['10001'] })).body.created).toHaveLength(0)
+
+    const linked = (await c.get(`/api/projects/${projectId}/jira/versions`)).body.find((v: any) => v.id === '10001')
+    expect(linked.release.name).toBe('1.4.0')
+    const release = (await c.get(`/api/releases/${linked.release.id}`)).body
+    expect(release).toMatchObject({ version: '1.4.0', planned_deployment_date: '2030-03-01', description: 'Search revamp' })
+
+    // Cloud search paginates (150 issues over two pages).
+    const issues = (await c.get(`/api/releases/${linked.release.id}/jira/issues`)).body
+    expect(issues.linked).toBe(true)
+    expect(issues.issues).toHaveLength(150)
+    expect(issues.issues[0]).toMatchObject({ key: 'ABC-1', type: 'Story', statusCategory: 'new', url: `${jira.url}/browse/ABC-1` })
+    expect(issues.issues.filter((i: any) => i.statusCategory === 'done')).toHaveLength(50)
+
+    // Unlink / relink.
+    expect((await c.put(`/api/releases/${linked.release.id}/jira`, { versionId: null })).status).toBe(204)
+    expect((await c.get(`/api/releases/${linked.release.id}/jira/issues`)).body).toEqual({ linked: false })
+    expect((await c.put(`/api/releases/${linked.release.id}/jira`, { versionId: '99999' })).status).toBe(404)
+    expect((await c.put(`/api/releases/${linked.release.id}/jira`, { versionId: '10001' })).status).toBe(204)
+  })
+
+  it('supports Jira Server / Data Center (personal access token, offset pagination)', async () => {
+    const c = await owner()
+    const p = (await c.post('/api/projects', { name: `Jira DC ${Date.now()}`, sprintsEnabled: false })).body.id
+    const saved = await c.put(`/api/projects/${p}/integrations/jira`, {
+      authType: 'JIRA_SERVER', baseUrl: jira.url, secret: JIRA.pat, projectKey: 'ABC',
+    })
+    expect(saved.status).toBe(200)
+    const [id] = (await c.post(`/api/projects/${p}/jira/import`, { versionIds: ['10001'] })).body.created
+    expect((await c.get(`/api/releases/${id}/jira/issues`)).body.issues).toHaveLength(150)
+    await c.del(`/api/projects/${p}`)
+  })
+
+  it('drives the Automated jobs step and report URLs from Jenkins, and runs jobs', async () => {
+    const c = await owner()
+    const connected = await c.put(`/api/projects/${projectId}/integrations/jenkins`, {
+      authType: 'JENKINS', baseUrl: jenkins.url, username: JENKINS.user, secret: JENKINS.token,
+    })
+    expect(connected.body.message).toBe('Connected to Jenkins 2.462 as ci-bot')
+
+    const release = (await c.post('/api/releases', { project_id: projectId, name: 'RC_J', version: '9.1.0', planned_deployment_date: '2030-04-01' })).body
+    const step = async () => (await c.get(`/api/releases/${release.id}`)).body.tasks.find((t: any) => t.task_type === 'AUTOMATED_JOBS')
+
+    // Unknown job → clear error, nothing linked.
+    const missing = await c.post(`/api/releases/${release.id}/jenkins`, { jobPath: 'platform/nope', purpose: 'AUTOMATED' })
+    expect(missing.status).toBe(502)
+    expect(missing.body.error.message).toMatch(/not found/)
+
+    // Linking accepts a full job URL; the latest build (#41 FAILURE) blocks the step.
+    const linked = await c.post(`/api/releases/${release.id}/jenkins`, {
+      jobPath: `${jenkins.url}/job/platform/job/integration-tests/`,
+      purpose: 'AUTOMATED',
+      parameters: { RC_VERSION: '{{version}}', TARGET: 'staging' },
+    })
+    expect(linked.status).toBe(201)
+    expect(await step()).toMatchObject({ status: 'BLOCKED', blocker_reason: 'Jenkins: platform/integration-tests #41 failure' })
+
+    // Run → parameters templated → build in progress → step in progress.
+    expect((await c.post(`/api/jenkins/jobs/${linked.body.id}/run`)).status).toBe(202)
+    expect(jenkins.triggered.at(-1)).toEqual({ job: 'platform/integration-tests', params: { RC_VERSION: '9.1.0', TARGET: 'staging' } })
+    await c.post(`/api/releases/${release.id}/jenkins/sync`)
+    expect((await step()).status).toBe('IN_PROGRESS')
+
+    // Build passes → step completed, attributed to Jenkins in the activity log.
+    jenkins.finish('platform/integration-tests', 'SUCCESS')
+    expect((await c.post(`/api/releases/${release.id}/jenkins/sync`)).body).toEqual({ synced: 1, failed: 0 })
+    expect((await step()).status).toBe('COMPLETED')
+    const activity = (await c.get(`/api/releases/${release.id}/activity`)).body.map((a: any) => a.description)
+    expect(activity).toEqual(expect.arrayContaining(['Jenkins: platform/integration-tests #42 success', 'started Jenkins job platform/integration-tests']))
+
+    // Report job: HTML artifact becomes the HIT report URL (not the result: humans review).
+    await c.post(`/api/releases/${release.id}/jenkins`, { jobPath: 'platform/hit-suite', purpose: 'HIT' })
+    const hit = (await c.get(`/api/releases/${release.id}`)).body.reports.find((r: any) => r.report_type === 'HIT')
+    expect(hit.report_url).toBe(`${jenkins.url}/job/platform/job/hit-suite/7/artifact/reports/hit.html`)
+    expect(hit.result).toBe('NOT_REVIEWED')
+
+    const jobs = (await c.get(`/api/releases/${release.id}/jenkins`)).body
+    expect(jobs.map((j: any) => [j.job_path, j.purpose, j.last_build.result])).toEqual([
+      ['platform/integration-tests', 'AUTOMATED', 'SUCCESS'],
+      ['platform/hit-suite', 'HIT', 'SUCCESS'],
+    ])
+    const builds = (await c.get(`/api/jenkins/jobs/${linked.body.id}/builds`)).body
+    expect(builds.map((b: any) => b.number)).toEqual([42, 41])
+  })
+
+  it('enforces roles: viewers read, members run, admins configure', async () => {
+    const c = await owner()
+    const maya = client(server.base)
+    const mayaUser = await maya.login('maya@example.com')
+    await c.post(`/api/projects/${projectId}/invitations/email`, { email: 'maya@example.com', role: 'VIEWER' })
+    const release = (await c.get(`/api/releases?projectId=${projectId}`)).body.find((r: any) => r.name === 'RC_J')
+    const jobs = (await maya.get(`/api/releases/${release.id}/jenkins`)).body
+    expect(jobs).toHaveLength(2) // viewer can see
+    expect((await maya.get(`/api/releases/${release.id}/jira/issues`)).status).toBe(200)
+    expect((await maya.post(`/api/jenkins/jobs/${jobs[0].id}/run`)).status).toBe(403)
+    expect((await maya.post(`/api/releases/${release.id}/jenkins`, { jobPath: 'platform/hit-suite', purpose: 'OTHER' })).status).toBe(403)
+    expect((await maya.del(`/api/jenkins/jobs/${jobs[0].id}`)).status).toBe(403)
+
+    await c.put(`/api/projects/${projectId}/members/${mayaUser.id}`, { role: 'MEMBER' })
+    expect((await maya.post(`/api/jenkins/jobs/${jobs[0].id}/run`)).status).toBe(202)
+    expect((await maya.put(`/api/projects/${projectId}/integrations/jenkins`, {
+      authType: 'JENKINS', baseUrl: jenkins.url, username: 'x', secret: 'y',
+    })).status).toBe(403)
+    expect((await maya.del(`/api/projects/${projectId}/integrations/jira`)).status).toBe(403)
+
+    // Outsiders see nothing.
+    const omar = client(server.base)
+    await omar.login('omar@example.com')
+    expect((await omar.get(`/api/projects/${projectId}/integrations`)).body).toEqual([])
+    expect((await omar.get(`/api/releases/${release.id}/jenkins`)).status).toBe(404)
+  })
+
+  it('rejects unsafe input', async () => {
+    const c = await owner()
+    const creds = { authType: 'JENKINS', username: JENKINS.user, secret: JENKINS.token }
+    expect((await c.put(`/api/projects/${projectId}/integrations/jenkins`, { ...creds, baseUrl: 'ftp://x' })).status).toBe(422)
+    expect((await c.put(`/api/projects/${projectId}/integrations/jenkins`, { ...creds, baseUrl: 'https://u:p@jenkins.example' })).status).toBe(422)
+    const release = (await c.get(`/api/releases?projectId=${projectId}`)).body[0]
+    expect((await c.post(`/api/releases/${release.id}/jenkins`, { jobPath: '../../etc', purpose: 'OTHER' })).status).toBe(422)
+    expect((await c.post(`/api/releases/${release.id}/jenkins`, { jobPath: 'x', purpose: 'OTHER', parameters: { 'bad key!': 'v' } })).status).toBe(400)
+  })
+})

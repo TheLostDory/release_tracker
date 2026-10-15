@@ -80,6 +80,9 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   else if (err?.type === 'entity.too.large') httpError = new HttpError(413, 'Request too large.', 'invalid')
   else httpError = new HttpError(500, 'Something went wrong. Please try again.', 'internal')
 
-  if (httpError.status >= 500) console.error(`[api] ${req.method} ${req.path}`, err)
+  if (httpError.code === 'integration_error') {
+    // Expected (Jira/Jenkins unreachable, bad token…): one line, no stack.
+    console.warn(`[api] ${req.method} ${req.path}: ${httpError.message}`)
+  } else if (httpError.status >= 500) console.error(`[api] ${req.method} ${req.path}`, err)
   res.status(httpError.status).json({ error: { message: httpError.message, code: httpError.code } })
 }

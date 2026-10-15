@@ -279,6 +279,8 @@ describe.skipIf(remote)('database privileges of the API login', () => {
     try {
       await expect(db.query('select password_hash from users')).rejects.toThrow(/permission denied/)
       await expect(db.query('select * from sessions')).rejects.toThrow(/permission denied/)
+      // Integration credentials are write-only for the API login.
+      await expect(db.query('select secret_encrypted from integrations')).rejects.toThrow(/permission denied/)
       await expect(db.query("insert into project_members (project_id, user_id, role) values (gen_random_uuid(), gen_random_uuid(), 'OWNER')")).rejects.toThrow(/permission denied/)
       // No app.user_id set → row level security shows nothing.
       expect((await db.query('select id from releases')).rowCount).toBe(0)
