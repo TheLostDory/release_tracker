@@ -189,6 +189,8 @@ describe('workflow', () => {
     expect((await c.patch(`/api/projects/${projectId}`, { enabled_steps: ['RELEASE_IDENTIFIED', 'HIT_REVIEW', 'DEPLOYMENT'] })).status).toBe(204)
     expect((await c.patch(`/api/projects/${projectId}`, { enabled_steps: ['HIT_REVIEW'] })).status).toBe(422)
     const lite = (await c.post('/api/releases', { project_id: projectId, name: 'LITE', version: '1', planned_deployment_date: '2030-02-01' })).body
+    const settings = (await c.get('/api/projects')).body.find((p: any) => p.id === projectId)
+    expect(settings.enabled_steps).toEqual(['RELEASE_IDENTIFIED', 'HIT_REVIEW', 'DEPLOYMENT'])
     const ld = (await c.get(`/api/releases/${lite.id}`)).body
     expect(ld.tasks.map((t: any) => t.task_type)).toEqual(['RELEASE_IDENTIFIED', 'HIT_REVIEW', 'DEPLOYMENT'])
     expect(ld.reports).toHaveLength(1)
@@ -216,6 +218,9 @@ describe('workflow', () => {
     expect(projects.map((p: any) => `${p.name}:${p.role}`).sort()).toEqual(['Mobile App:VIEWER', 'Release Tracker:MEMBER'])
     const mobile = projects.find((p: any) => p.name === 'Mobile App')
     expect(mobile.sprints_enabled).toBe(false)
+    // Real arrays, not Postgres array literals.
+    for (const p of projects) expect(Array.isArray(p.enabled_steps)).toBe(true)
+    expect(mobile.enabled_steps).toHaveLength(8)
     const releases = (await c.get(`/api/releases?projectId=${mobile.id}`)).body
     expect(releases.map((r: any) => r.version).sort()).toEqual(['3.1.0', '3.2.0'])
   })

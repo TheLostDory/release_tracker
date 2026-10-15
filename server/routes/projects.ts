@@ -30,7 +30,9 @@ export function projectRoutes(db: Db) {
   router.get('/projects', async (req, res) => {
     const rows = await asUser(db, req, async (tx) => {
       const r = await tx.query(
-        `select p.id, p.name, p.description, p.sprints_enabled, p.enabled_steps, m.role
+        // ::text[]: node-postgres returns arrays of custom enum types as the raw
+        // string "{A,B}"; plain text[] arrives as a real JSON array.
+        `select p.id, p.name, p.description, p.sprints_enabled, p.enabled_steps::text[] as enabled_steps, m.role
          from projects p join project_members m on m.project_id = p.id and m.user_id = $1
          order by p.name`,
         [userId(req)],
