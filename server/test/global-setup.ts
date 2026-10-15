@@ -8,7 +8,6 @@ import { migrate } from '../db/migrate.js'
  * any database on the server, e.g. postgres://postgres:pw@127.0.0.1:54340/postgres
  */
 export const TEST_DB = 'release_tracker_test'
-export const TEST_APP_PASSWORD = 'test-app-password-123'
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -31,10 +30,13 @@ export default async function setup(project: TestProject) {
   await admin.end()
 
   const ownerUrl = withDatabase(adminUrl, TEST_DB)
-  await migrate(ownerUrl, { appPassword: TEST_APP_PASSWORD, seed: true, log: () => {} })
+  // No appPassword: Postgres logins are server-wide, and changing the app
+  // login's password here would break any app running on the same server.
+  await migrate(ownerUrl, { seed: true, log: () => {} })
+  // Tests act as the restricted app role by switching role at connect time:
+  // same RLS and privileges, no shared password involved.
   const app = new URL(ownerUrl)
-  app.username = 'release_tracker_app'
-  app.password = TEST_APP_PASSWORD
+  app.searchParams.set('options', '-c role=release_tracker_app')
   project.provide('appDatabaseUrl', app.toString())
 }
 
