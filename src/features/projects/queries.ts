@@ -30,7 +30,7 @@ export function useMyProjects() {
   const { user } = useAuth()
   return useQuery({
     queryKey: projectKeys.mine(user?.id ?? ''),
-    queryFn: () => listMyProjects(user!.id),
+    queryFn: listMyProjects,
     enabled: !!user,
     staleTime: 5 * 60_000,
   })

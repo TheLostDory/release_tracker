@@ -17,6 +17,11 @@ declare module 'vitest' {
 }
 
 export default async function setup(project: TestProject) {
+  // Smoke mode: test an already-running deployment instead (no DB access).
+  if (process.env.API_BASE_URL) {
+    project.provide('appDatabaseUrl', '')
+    return
+  }
   const adminUrl = process.env.TEST_DATABASE_ADMIN_URL
   if (!adminUrl) throw new Error('Set TEST_DATABASE_ADMIN_URL to run the API tests (see README).')
   const admin = new pg.Client({ connectionString: adminUrl })

@@ -13,7 +13,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SPRINT_STATUS_OPTIONS } from '@/lib/status-labels'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 import type { Sprint, SprintStatus } from '@/types/domain'
 import { useCurrentSprint } from './current-sprint-context'
 import { useCreateSprint, useUpdateSprint } from './queries'

@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { api, qs } from '@/lib/api'
 
 export interface ReleaseSearchResult {
   id: string
@@ -12,11 +12,7 @@ export interface ReleaseSearchResult {
   actual_deployment_date: string | null
 }
 
-/** Server-side search over release name, version, sprint and owner. */
-export async function searchReleases(q: string, signal?: AbortSignal): Promise<ReleaseSearchResult[]> {
-  let request = supabase.rpc('search_releases', { q, max_results: 20 })
-  if (signal) request = request.abortSignal(signal)
-  const { data, error } = await request
-  if (error) throw error
-  return data
+/** Server-side search over release name, version, project, sprint and owner. */
+export function searchReleases(q: string, signal?: AbortSignal): Promise<ReleaseSearchResult[]> {
+  return api.get<ReleaseSearchResult[]>(`/search${qs({ q })}`, signal)
 }

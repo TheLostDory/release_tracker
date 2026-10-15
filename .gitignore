@@ -34,3 +34,4 @@ supabase/.branches
 
 # Test output
 coverage
+dist-server

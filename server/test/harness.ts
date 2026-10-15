@@ -5,8 +5,12 @@ import { loadConfig } from '../config.js'
 import { createPool } from '../db/pool.js'
 import { ReleaseEvents } from '../realtime.js'
 
+/** True when testing a running deployment (API_BASE_URL) instead of a local server. */
+export const remote = !!process.env.API_BASE_URL
+
 /** Starts the real app on a random port against the test database. */
 export async function startServer() {
+  if (process.env.API_BASE_URL) return { base: process.env.API_BASE_URL.replace(/\/$/, ''), stop: async () => {} }
   const url = inject('appDatabaseUrl')
   const config = loadConfig({ DATABASE_URL: url, NODE_ENV: 'test' })
   const db = createPool(url)

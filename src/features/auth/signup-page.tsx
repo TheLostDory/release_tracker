@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router'
-import { MailCheck } from 'lucide-react'
 import { FormField } from '@/components/form-field'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,7 +28,6 @@ export default function SignupPage() {
   const [errors, setErrors] = useState<Errors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [sentTo, setSentTo] = useState<string | null>(null)
 
   if (status === 'authenticated') return <Navigate to={from} replace />
 
@@ -52,9 +50,8 @@ export default function SignupPage() {
     if (Object.keys(next).length > 0) return
     setSubmitting(true)
     try {
-      const result = await signUp({ email: email.trim(), password, name: name.trim() })
-      if (result === 'signed-in') navigate(from, { replace: true })
-      else setSentTo(email.trim())
+      await signUp({ email: email.trim(), password, name: name.trim() })
+      navigate(from, { replace: true })
     } catch (err) {
       setFormError(authErrorMessage(err, 'Sign-up failed'))
     } finally {
@@ -67,17 +64,6 @@ export default function SignupPage() {
       Sign in
     </Link>
   )
-
-  if (sentTo) {
-    return (
-      <AuthCard pageTitle="Confirm your email" title="Check your email" footer={<>Confirmed already? {signInLink}</>}>
-        <p className="flex gap-2 text-sm text-muted-foreground">
-          <MailCheck className="mt-0.5 size-4 shrink-0" />
-          We sent a confirmation link to <span className="font-medium text-foreground">{sentTo}</span>. Open it, then sign in.
-        </p>
-      </AuthCard>
-    )
-  }
 
   const clear = (key: keyof Errors) => setErrors((e) => ({ ...e, [key]: undefined }))
 

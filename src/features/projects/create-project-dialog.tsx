@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 import { useCurrentProject } from './current-project-context'
 import { useCreateProject } from './queries'
 

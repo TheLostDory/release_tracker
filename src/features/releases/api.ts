@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { api, qs } from '@/lib/api'
 import type {
   ApprovalStatus,
   ProfileSummary,
@@ -133,106 +133,44 @@ export interface ReleaseFilters {
   deploymentTo?: string
 }
 
-/** Hard cap for the unfiltered list; the UI says when it is reached. */
+/** Hard cap for one list (server side); the UI says when it is reached. */
 export const RELEASE_LIST_LIMIT = 500
 
-const LIST_COLUMNS = `
-  id, name, version, planned_deployment_date, actual_deployment_date, status_override, status_override_reason,
-  project:projects!inner(id, name),
-  sprint:sprints(id, name),
-  owner:profiles!releases_owner_id_fkey(id, name),
-  tasks:release_tasks(task_type, status, planned_date, completed_at, blocker_reason, owner_id),
-  reports(report_type, result)
-`
-
-/** Releases with their steps/reports in one round trip (no N+1). */
-export async function listReleases({
-  projectId,
-  sprintId,
-  open,
-  deploymentFrom,
-  deploymentTo,
-}: ReleaseFilters = {}): Promise<ReleaseListItem[]> {
-  let query = supabase
-    .from('releases')
-    .select(LIST_COLUMNS)
-    // One sprint: chronological. All sprints: most recent targets first.
-    .order('planned_deployment_date', { ascending: !!sprintId })
-    .limit(RELEASE_LIST_LIMIT)
-  if (projectId) query = query.eq('project_id', projectId)
-  if (sprintId === 'none') query = query.is('sprint_id', null)
-  else if (sprintId) query = query.eq('sprint_id', sprintId)
-  if (open) query = query.is('actual_deployment_date', null)
-  if (deploymentFrom) query = query.gte('planned_deployment_date', deploymentFrom)
-  if (deploymentTo) query = query.lte('planned_deployment_date', deploymentTo)
-
-  const { data, error } = await query
-  if (error) throw error
-  return data
+/** Releases with their steps/reports in one round trip. */
+export function listReleases({ projectId, sprintId, open, deploymentFrom, deploymentTo }: ReleaseFilters = {}): Promise<ReleaseListItem[]> {
+  return api.get<ReleaseListItem[]>(
+    `/releases${qs({ projectId, sprintId, open: open ? 'true' : undefined, deploymentFrom, deploymentTo })}`,
+  )
 }
 
-export async function getRelease(id: string): Promise<ReleaseDetail> {
-  const { data, error } = await supabase
-    .from('releases')
-    .select(
-      `id, name, version, description, planned_deployment_date, actual_deployment_date,
-       status_override, status_override_reason, created_at, project_id,
-       sprint:sprints(id, name, start_date, end_date),
-       owner:profiles!releases_owner_id_fkey(id, name),
-       tasks:release_tasks(id, task_type, name, position, status, planned_date, completed_at,
-         owner_id, notes, link, blocker_reason),
-       reports(id, report_type, status, result, report_url, reviewed_at, notes,
-         reviewer:profiles!reports_reviewer_id_fkey(id, name)),
-       approvals(id, status, requested_at, approved_at, comments,
-         approver:profiles!approvals_approved_by_fkey(id, name))`,
-    )
-    .eq('id', id)
-    .order('position', { referencedTable: 'release_tasks' })
-    .order('report_type', { referencedTable: 'reports' })
-    .single()
-  if (error) throw error
-  const { approvals, ...release } = data
-  return { ...release, approval: approvals ?? null }
+export function getRelease(id: string): Promise<ReleaseDetail> {
+  return api.get<ReleaseDetail>(`/releases/${id}`)
 }
 
-export async function listActivity(releaseId: string): Promise<ActivityEntry[]> {
-  const { data, error } = await supabase
-    .from('activity_log')
-    .select('id, action, description, created_at, user:profiles!activity_log_user_id_fkey(id, name)')
-    .eq('release_id', releaseId)
-    .order('created_at', { ascending: false })
-    .limit(100)
-  if (error) throw error
-  return data
+export function listActivity(releaseId: string): Promise<ActivityEntry[]> {
+  return api.get<ActivityEntry[]>(`/releases/${releaseId}/activity`)
 }
 
-export async function createRelease(input: ReleaseInput): Promise<{ id: string }> {
-  const { data, error } = await supabase.from('releases').insert(input).select('id').single()
-  if (error) throw error
-  return data
+export function createRelease(input: ReleaseInput): Promise<{ id: string }> {
+  return api.post<{ id: string }>('/releases', input)
 }
 
-export async function updateRelease(id: string, patch: ReleasePatch): Promise<void> {
-  const { error } = await supabase.from('releases').update(patch).eq('id', id)
-  if (error) throw error
+export function updateRelease(id: string, patch: ReleasePatch): Promise<void> {
+  return api.patch(`/releases/${id}`, patch)
 }
 
-export async function deleteRelease(id: string): Promise<void> {
-  const { error } = await supabase.from('releases').delete().eq('id', id)
-  if (error) throw error
+export function deleteRelease(id: string): Promise<void> {
+  return api.del(`/releases/${id}`)
 }
 
-export async function updateTask(id: string, patch: TaskPatch): Promise<void> {
-  const { error } = await supabase.from('release_tasks').update(patch).eq('id', id)
-  if (error) throw error
+export function updateTask(id: string, patch: TaskPatch): Promise<void> {
+  return api.patch(`/tasks/${id}`, patch)
 }
 
-export async function updateReport(id: string, patch: ReportPatch): Promise<void> {
-  const { error } = await supabase.from('reports').update(patch).eq('id', id)
-  if (error) throw error
+export function updateReport(id: string, patch: ReportPatch): Promise<void> {
+  return api.patch(`/reports/${id}`, patch)
 }
 
-export async function updateApproval(id: string, patch: ApprovalPatch): Promise<void> {
-  const { error } = await supabase.from('approvals').update(patch).eq('id', id)
-  if (error) throw error
+export function updateApproval(id: string, patch: ApprovalPatch): Promise<void> {
+  return api.patch(`/approvals/${id}`, patch)
 }

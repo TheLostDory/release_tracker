@@ -1,13 +1,12 @@
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import type { ProfileSummary } from '@/types/domain'
 
-export async function listProfiles(): Promise<ProfileSummary[]> {
-  const { data, error } = await supabase.from('profiles').select('id, name').order('name')
-  if (error) throw error
-  return data
+/** Everyone who shares a project with the signed-in user (and the user). */
+export function listProfiles(): Promise<ProfileSummary[]> {
+  return api.get<ProfileSummary[]>('/users')
 }
 
-export async function updateMyName(id: string, name: string): Promise<void> {
-  const { error } = await supabase.from('profiles').update({ name }).eq('id', id)
-  if (error) throw error
+/** Only the signed-in user's own name can be changed. */
+export function updateMyName(_id: string, name: string): Promise<void> {
+  return api.patch('/me', { name })
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 import { REPORT_LABELS, REPORT_TYPES, REQUIRED_STEPS, REVIEW_STEP_FOR_REPORT, WORKFLOW_STEPS } from '@/lib/workflow'
 import type { WorkflowTaskType } from '@/types/domain'

@@ -1,4 +1,5 @@
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
+import { isNotFound } from '@/lib/errors'
 import type { ProjectRole } from '@/lib/permissions'
 import type { WorkflowTaskType } from '@/types/domain'
 
@@ -36,88 +37,52 @@ export interface ProjectInvitation {
   use_count: number
 }
 
-export async function listMyProjects(userId: string): Promise<Project[]> {
-  const { data, error } = await supabase
-    .from('projects')
-    .select('id, name, description, sprints_enabled, enabled_steps, project_members!inner(role)')
-    .eq('project_members.user_id', userId)
-    .order('name')
-  if (error) throw error
-  return data.map(({ project_members, ...p }) => ({ ...p, role: project_members[0]!.role }))
+export function listMyProjects(): Promise<Project[]> {
+  return api.get<Project[]>('/projects')
 }
 
 export async function createProject(input: { name: string; description: string | null; sprintsEnabled: boolean }) {
-  const { data, error } = await supabase.rpc('create_project', {
-    p_name: input.name,
-    p_description: input.description ?? '',
-    p_sprints_enabled: input.sprintsEnabled,
-  })
-  if (error) throw error
-  return data
+  const { id } = await api.post<{ id: string }>('/projects', input)
+  return id
 }
 
-export async function updateProject(id: string, patch: Partial<ProjectSettings>): Promise<void> {
-  const { error } = await supabase.from('projects').update(patch).eq('id', id)
-  if (error) throw error
+export function updateProject(id: string, patch: Partial<ProjectSettings>): Promise<void> {
+  return api.patch(`/projects/${id}`, patch)
 }
 
-export async function deleteProject(id: string): Promise<void> {
-  const { error } = await supabase.from('projects').delete().eq('id', id)
-  if (error) throw error
+export function deleteProject(id: string): Promise<void> {
+  return api.del(`/projects/${id}`)
 }
 
-export async function listMembers(projectId: string): Promise<ProjectMember[]> {
-  const { data, error } = await supabase
-    .from('project_members')
-    .select('user_id, role, created_at, profile:profiles!project_members_user_id_fkey(id, name, email)')
-    .eq('project_id', projectId)
-    .order('created_at')
-  if (error) throw error
-  return data
+export function listMembers(projectId: string): Promise<ProjectMember[]> {
+  return api.get<ProjectMember[]>(`/projects/${projectId}/members`)
 }
 
-export async function listPendingInvitations(projectId: string): Promise<ProjectInvitation[]> {
-  const { data, error } = await supabase
-    .from('project_invitations')
-    .select('id, role, email, created_at, expires_at, use_count')
-    .eq('project_id', projectId)
-    .is('revoked_at', null)
-    .is('accepted_at', null)
-    .order('created_at', { ascending: false })
-  if (error) throw error
-  return data
+export function listPendingInvitations(projectId: string): Promise<ProjectInvitation[]> {
+  return api.get<ProjectInvitation[]>(`/projects/${projectId}/invitations`)
 }
 
 export async function inviteByEmail(projectId: string, email: string, role: ProjectRole): Promise<'added' | 'invited'> {
-  const { data, error } = await supabase.rpc('invite_by_email', { p_project: projectId, p_email: email, p_role: role })
-  if (error) throw error
-  return data === 'added' ? 'added' : 'invited'
+  const { result } = await api.post<{ result: string }>(`/projects/${projectId}/invitations/email`, { email, role })
+  return result === 'added' ? 'added' : 'invited'
 }
 
 /** Returns the raw token. It is only shown once; the database stores a hash. */
 export async function createInviteLink(projectId: string, role: ProjectRole, expiresInDays: number): Promise<string> {
-  const { data, error } = await supabase.rpc('create_invite_link', {
-    p_project: projectId,
-    p_role: role,
-    p_expires_in_days: expiresInDays,
-  })
-  if (error) throw error
-  return data
+  const { token } = await api.post<{ token: string }>(`/projects/${projectId}/invitations/link`, { role, days: expiresInDays })
+  return token
 }
 
-export async function revokeInvitation(id: string): Promise<void> {
-  const { error } = await supabase.rpc('revoke_invitation', { p_invitation: id })
-  if (error) throw error
+export function revokeInvitation(id: string): Promise<void> {
+  return api.del(`/invitations/${id}`)
 }
 
-export async function setMemberRole(projectId: string, userId: string, role: ProjectRole): Promise<void> {
-  const { error } = await supabase.rpc('set_member_role', { p_project: projectId, p_user: userId, p_role: role })
-  if (error) throw error
+export function setMemberRole(projectId: string, userId: string, role: ProjectRole): Promise<void> {
+  return api.put(`/projects/${projectId}/members/${userId}`, { role })
 }
 
-export async function removeMember(projectId: string, userId: string): Promise<void> {
-  const { error } = await supabase.rpc('remove_member', { p_project: projectId, p_user: userId })
-  if (error) throw error
+export function removeMember(projectId: string, userId: string): Promise<void> {
+  return api.del(`/projects/${projectId}/members/${userId}`)
 }
 
 export interface InviteLinkInfo {
@@ -128,13 +93,15 @@ export interface InviteLinkInfo {
 }
 
 export async function getInviteLinkInfo(token: string): Promise<InviteLinkInfo | null> {
-  const { data, error } = await supabase.rpc('invite_link_info', { p_token: token })
-  if (error) throw error
-  return data[0] ?? null
+  try {
+    return await api.get<InviteLinkInfo>(`/invites/${encodeURIComponent(token)}`)
+  } catch (err) {
+    if (isNotFound(err)) return null
+    throw err
+  }
 }
 
 export async function acceptInviteLink(token: string): Promise<string> {
-  const { data, error } = await supabase.rpc('accept_invite_link', { p_token: token })
-  if (error) throw error
-  return data
+  const { projectId } = await api.post<{ projectId: string }>(`/invites/${encodeURIComponent(token)}/accept`)
+  return projectId
 }

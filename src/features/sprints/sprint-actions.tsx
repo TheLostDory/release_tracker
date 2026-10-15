@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 import type { SprintStatus, SprintWithCount } from '@/types/domain'
 import { useCurrentProject } from '@/features/projects/current-project-context'
 import { useDeleteSprint, useUpdateSprint } from './queries'

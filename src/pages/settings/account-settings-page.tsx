@@ -11,7 +11,7 @@ import { useProfiles, useUpdateMyName } from '@/features/profiles/queries'
 import { useTheme } from '@/hooks/use-theme'
 import type { ThemePreference } from '@/lib/theme'
 import { cn } from '@/lib/utils'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 
 export default function AccountSettingsPage() {
   return (

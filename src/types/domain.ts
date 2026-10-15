@@ -1,14 +1,24 @@
-import type { Database } from './database'
-
-type Enums = Database['public']['Enums']
-
-export type SprintStatus = Enums['sprint_status']
-export type TaskStatus = Enums['task_status']
-export type WorkflowTaskType = Enums['workflow_task_type']
-export type ReportType = Enums['report_type']
-export type ReportResult = Enums['report_result']
-export type ReleaseStatus = Enums['release_status']
-export type ApprovalStatus = Enums['approval_status']
+/** Domain enums (mirror the Postgres enums in server/db/migrations). */
+export type SprintStatus = 'PLANNED' | 'ACTIVE' | 'COMPLETED'
+export type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'BLOCKED' | 'SKIPPED'
+export type WorkflowTaskType =
+  | 'RELEASE_IDENTIFIED'
+  | 'RC_CREATION'
+  | 'AUTOMATED_JOBS'
+  | 'LOAD_TEST_REVIEW'
+  | 'LONGEVITY_REVIEW'
+  | 'HIT_REVIEW'
+  | 'RC_EMAIL'
+  | 'RTP_CREATION'
+  | 'RC_ESCALATION_EMAIL'
+  | 'APPROVAL'
+  | 'RELEASE_EMAIL'
+  | 'DEPLOYMENT'
+export type ReportType = 'LOAD_TEST' | 'LONGEVITY' | 'HIT'
+export type ReportResult = 'PASS' | 'FAIL' | 'WARNING' | 'NOT_REVIEWED'
+export type ReleaseStatus = 'ON_TRACK' | 'AT_RISK' | 'BLOCKED' | 'WAITING_FOR_APPROVAL' | 'RELEASED'
+export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+export type ProjectRole = 'VIEWER' | 'MEMBER' | 'ADMIN' | 'OWNER'
 
 export interface Sprint {
   id: string
@@ -25,4 +35,11 @@ export interface SprintWithCount extends Sprint {
 export interface ProfileSummary {
   id: string
   name: string
+}
+
+export interface User {
+  id: string
+  email: string
+  name: string
+  avatar_url: string | null
 }

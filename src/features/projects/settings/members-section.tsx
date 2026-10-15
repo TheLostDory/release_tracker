@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/features/auth/auth-context'
 import { assignableRoles, ROLE_DESCRIPTIONS, ROLE_LABELS, type ProjectRole } from '@/lib/permissions'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 import type { Project, ProjectMember } from '../api'
 import { useProjectMembers, useRemoveMember, useSetMemberRole } from '../queries'
 import { SettingsSection } from './settings-section'

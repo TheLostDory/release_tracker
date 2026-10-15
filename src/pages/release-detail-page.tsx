@@ -27,6 +27,7 @@ import { WorkflowTimeline } from '@/features/releases/workflow/workflow-timeline
 import { useToday } from '@/hooks/use-today'
 import { formatDay, formatTimestamp, parseDay } from '@/lib/dates'
 import { permissionsFor } from '@/lib/permissions'
+import { isNotFound } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 
 export default function ReleaseDetailPage() {
@@ -60,9 +61,8 @@ export default function ReleaseDetailPage() {
       </div>
     )
   }
-  // PGRST116 = no row, 22P02 = malformed id: both mean "not found".
-  const code = (error as { code?: string } | null)?.code
-  if (error && code !== 'PGRST116' && code !== '22P02') {
+  // 404 (missing or not visible) and 400 (malformed id) both mean "not found".
+  if (error && !isNotFound(error)) {
     return <QueryError error={error} onRetry={() => void refetch()} />
   }
   if (!release || !summary) {

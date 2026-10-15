@@ -26,11 +26,8 @@ out="$(pwd)/release-tracker-images-$arch.tar.gz"
 cd "$(dirname "$0")/.."
 
 upstream="
-public.ecr.aws/supabase/postgres:17.11.0.004
-public.ecr.aws/supabase/gotrue:v2.197.0
-public.ecr.aws/supabase/postgrest:v16.4
-public.ecr.aws/supabase/realtime:v2.140.10
-nginx:stable-alpine
+postgres:17-alpine
+node:22-alpine
 "
 
 # Retries: large layers over flaky connections can drop mid-download.
@@ -50,26 +47,16 @@ for image in $upstream; do
   pull "$image"
 done
 
-# Build for both platforms so the tags keep working on this machine too.
+# Build for both platforms so the tag keeps working on this machine too.
 host="linux/$(docker version --format '{{.Server.Arch}}')"
 platforms="$platform"
 [ "$host" = "$platform" ] || platforms="$platform,$host"
 
-echo "==> Building app images for $platforms"
-docker buildx build --platform "$platforms" --load -t release-tracker-db ./docker/db
-docker buildx build --platform "$platforms" --load -t release-tracker-migrate -f docker/migrate/Dockerfile .
-docker buildx build --platform "$platforms" --load -t release-tracker-web \
-  --build-arg VITE_SUPABASE_URL=same-origin \
-  --build-arg "VITE_SUPABASE_PUBLISHABLE_KEY=${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InJlbGVhc2UtdHJhY2tlci1sb2NhbCIsImlhdCI6MTc5MTgzMDMyMiwiZXhwIjoyMTA3MTkwMzIyfQ.sPUkA3JqAPh29hCjjo-BzGNPmZE96NEYoL_9Ut9Y_WQ}" \
-  .
+echo "==> Building the app image for $platforms"
+docker buildx build --platform "$platforms" --load -t release-tracker-app .
 
 echo "==> Saving $out"
-docker save --platform "$platform" \
-  release-tracker-db release-tracker-migrate release-tracker-web \
-  public.ecr.aws/supabase/gotrue:v2.197.0 \
-  public.ecr.aws/supabase/postgrest:v16.4 \
-  public.ecr.aws/supabase/realtime:v2.140.10 \
-  | gzip -6 > "$out"
+docker save --platform "$platform" release-tracker-app postgres:17-alpine | gzip -6 > "$out"
 
 ls -lh "$out"
 echo "Done. Copy $out together with the project folder."

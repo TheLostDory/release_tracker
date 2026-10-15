@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAcceptInviteLink, useInviteLinkInfo } from '@/features/projects/queries'
 import { ROLE_DESCRIPTIONS, ROLE_LABELS } from '@/lib/permissions'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 
 const PROJECT_KEY = 'release-tracker:current-project'
 

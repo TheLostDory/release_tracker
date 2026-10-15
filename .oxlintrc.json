@@ -1,15 +1,37 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
+  "plugins": [
+    "react",
+    "typescript",
+    "oxc"
+  ],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ],
     "typescript/no-explicit-any": "error"
   },
   "overrides": [
     {
-      "files": ["src/components/ui/**"],
-      "rules": { "react/only-export-components": "off" }
+      "files": [
+        "src/components/ui/**"
+      ],
+      "rules": {
+        "react/only-export-components": "off"
+      }
+    },
+    {
+      "files": [
+        "server/**/*.test.ts",
+        "server/test/**"
+      ],
+      "rules": {
+        "typescript/no-explicit-any": "off"
+      }
     }
   ]
 }

@@ -7,7 +7,7 @@ import { isDone, REPORT_LABELS, STEP_BY_TYPE } from './workflow'
  * "Action required" items derived from release state.
  *
  * Pure and framework-free (only date-fns), so the same rules can run in a
- * scheduled server job (e.g. a Supabase Edge Function) to send email / Slack /
+ * scheduled server job (e.g. in the Express server) to send email / Slack /
  * Teams notifications later. Item ids are stable across runs for the same
  * condition, which is what a delivery channel needs to de-duplicate.
  */

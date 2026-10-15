@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToday } from '@/hooks/use-today'
 import { formatTimestamp } from '@/lib/dates'
 import { assignableRoles, ROLE_LABELS, type ProjectRole } from '@/lib/permissions'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 import type { Project } from '../api'
 import { useCreateInviteLink, useInviteByEmail, usePendingInvitations, useRevokeInvitation } from '../queries'
 import { SettingsSection } from './settings-section'

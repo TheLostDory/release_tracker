@@ -1,11 +1,11 @@
-import type { Database } from '@/types/database'
+import type { ProjectRole } from '@/types/domain'
 
 /**
  * Project roles and what they allow. Mirrors the RLS policies and the
  * membership functions in 20261013000000_projects.sql; the database is the
  * enforcement, this only decides what the UI offers.
  */
-export type ProjectRole = Database['public']['Enums']['project_role']
+export type { ProjectRole }
 
 export const ROLE_ORDER: readonly ProjectRole[] = ['VIEWER', 'MEMBER', 'ADMIN', 'OWNER']
 

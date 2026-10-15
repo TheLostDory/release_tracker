@@ -3,8 +3,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { toast } from 'sonner'
 import { sprintKeys } from '@/features/sprints/queries'
 import { toDayString } from '@/lib/dates'
-import { supabase } from '@/lib/supabase'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 import {
   createRelease,
   deleteRelease,
@@ -81,7 +80,7 @@ function refreshAfterWrite(qc: QueryClient, releaseId?: string) {
   }
 }
 
-/** Live updates: refetch when anyone changes this release's workflow. */
+/** Live updates: refetch when anyone changes this release (Server-Sent Events). */
 export function useReleaseRealtime(releaseId: string | undefined) {
   const qc = useQueryClient()
   useEffect(() => {
@@ -92,15 +91,12 @@ export function useReleaseRealtime(releaseId: string | undefined) {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => refreshAfterWrite(qc, releaseId), 300)
     }
-    const channel = supabase.channel(`release:${releaseId}`)
-    for (const table of ['release_tasks', 'reports', 'approvals'] as const) {
-      channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: `release_id=eq.${releaseId}` }, refresh)
-    }
-    channel.on('postgres_changes', { event: '*', schema: 'public', table: 'releases', filter: `id=eq.${releaseId}` }, refresh)
-    channel.subscribe()
+    // EventSource reconnects by itself; same-origin, sends the session cookie.
+    const source = new EventSource(`/api/releases/${releaseId}/events`)
+    source.addEventListener('change', refresh)
     return () => {
       window.clearTimeout(timer)
-      void supabase.removeChannel(channel)
+      source.close()
     }
   }, [qc, releaseId])
 }

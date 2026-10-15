@@ -1,9 +1,8 @@
-import type { Session, User } from '@supabase/supabase-js'
 import { createContext, useContext } from 'react'
+import type { User } from '@/types/domain'
 
 export interface AuthState {
   status: 'loading' | 'authenticated' | 'anonymous'
-  session: Session | null
   user: User | null
 }
 

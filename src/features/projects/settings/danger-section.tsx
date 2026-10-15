@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuth } from '@/features/auth/auth-context'
-import { toUserMessage } from '@/lib/supabase-errors'
+import { toUserMessage } from '@/lib/errors'
 import type { Project } from '../api'
 import { useDeleteProject, useRemoveMember } from '../queries'
 import { SettingsSection } from './settings-section'

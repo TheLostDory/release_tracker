@@ -34,11 +34,8 @@ export function UserMenu() {
   const { data: profiles } = useProfiles()
   const theme = useTheme()
   if (!user) return null
-  // Profile name is editable in Settings; auth metadata is only the fallback.
-  const meta = user.user_metadata as { name?: unknown }
-  const name =
-    profiles?.find((p) => p.id === user.id)?.name ??
-    (typeof meta.name === 'string' ? meta.name : (user.email ?? 'User'))
+  // Fresh after a rename in Settings; falls back to the session copy.
+  const name = profiles?.find((p) => p.id === user.id)?.name ?? user.name
 
   return (
     <DropdownMenu>

@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { client, startServer } from './test/harness.js'
+import { client, remote, startServer } from './test/harness.js'
+
+// Unique per run, so the suite can also run against a persistent deployment.
+const run = Date.now().toString(36)
 
 /**
  * End-to-end API tests: real Express app, real Postgres (fresh test database
@@ -18,9 +21,9 @@ afterAll(async () => {
 describe('auth', () => {
   it('signs up, reads /me, logs out', async () => {
     const c = api()
-    const signup = await c.post('/api/auth/signup', { email: 'New.Person@Example.com', password: 'welcome2026x', name: 'New Person' })
+    const signup = await c.post('/api/auth/signup', { email: `New.Person.${run}@Example.com`, password: 'welcome2026x', name: 'New Person' })
     expect(signup.status).toBe(201)
-    expect(signup.body.user).toMatchObject({ email: 'new.person@example.com', name: 'New Person' })
+    expect(signup.body.user).toMatchObject({ email: `new.person.${run}@example.com`, name: 'New Person' })
     expect(signup.body.user.password_hash).toBeUndefined()
     expect((await c.get('/api/auth/me')).body.user.name).toBe('New Person')
     // A new account sees nothing.
@@ -120,9 +123,9 @@ describe('projects, roles and invitations', () => {
     expect((await other.del(`/api/projects/${projectId}`)).status).toBe(403)
 
     // Pending email invite → joins on sign-up.
-    expect((await other.post(`/api/projects/${projectId}/invitations/email`, { email: 'later@example.com', role: 'MEMBER' })).body.result).toBe('invited')
+    expect((await other.post(`/api/projects/${projectId}/invitations/email`, { email: `later.${run}@example.com`, role: 'MEMBER' })).body.result).toBe('invited')
     const later = api()
-    await later.post('/api/auth/signup', { email: 'later@example.com', password: 'welcome2026x', name: 'Later' })
+    await later.post('/api/auth/signup', { email: `later.${run}@example.com`, password: 'welcome2026x', name: 'Later' })
     const laterProjects = (await later.get('/api/projects')).body
     expect(laterProjects.map((p: any) => [p.id, p.role])).toEqual([[projectId, 'MEMBER']])
 
@@ -262,7 +265,7 @@ describe('live updates', () => {
   })
 })
 
-describe('database privileges of the API login', () => {
+describe.skipIf(remote)('database privileges of the API login', () => {
   it("can't read credentials or sessions, and sees nothing without a user", async () => {
     const { default: pg } = await import('pg')
     const { inject } = await import('vitest')
