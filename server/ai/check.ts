@@ -8,6 +8,7 @@
 import { loadConfig } from '../config.js'
 import { inspectCertificates } from '../integrations/certificate.js'
 import { aiSettings, askModel, TOKEN_SERVICE } from './client.js'
+import { probeGateway } from './probe.js'
 
 const config = loadConfig({ DATABASE_URL: 'postgres://unused@localhost/unused', ...process.env })
 try {
@@ -39,6 +40,25 @@ try {
       console.error(`AI_CA_CERT=${root.pem.trim().replaceAll('\n', '\\n')}`)
     } catch (inspectErr) {
       console.error(`(Couldn't read the certificate: ${(inspectErr as Error).message})`)
+    }
+  }
+  // Wrong path: try the usual layouts under AI_BASE_URL to find the right one.
+  if (/HTTP 404|HTTP 405/.test(message) && !message.startsWith(TOKEN_SERVICE)) {
+    console.error('\nTrying the usual paths under AI_BASE_URL (one tiny request each)…\n')
+    try {
+      const results = await probeGateway(config)
+      for (const r of results) console.error(`  ${String(r.status).padEnd(5)} ${r.format.padEnd(6)} ${r.path || '(AI_BASE_URL itself)'}  ${r.status === 404 ? '' : r.message}`)
+      const hit = results.find((r) => r.status === 200) ?? results.find((r) => typeof r.status === 'number' && r.status !== 404 && r.status !== 405)
+      if (hit) {
+        const format = hit.format === 'openai' ? 'openai' : config.AI_FORMAT === 'openai' ? 'gemini' : config.AI_FORMAT
+        console.error(`\n${hit.status === 200 ? 'This one works' : 'This path exists (it answered, but not with 200)'}. Add to ai.env, then: docker compose up -d`)
+        console.error(`  AI_PATH=${hit.path || '/'}`)
+        if (format !== config.AI_FORMAT) console.error(`  AI_FORMAT=${format}`)
+      } else {
+        console.error('\nNone of the usual paths exist. Ask the gateway team for the full request URL (or an example curl).')
+      }
+    } catch (probeErr) {
+      console.error(`(Couldn't try other paths: ${(probeErr as Error).message})`)
     }
   }
   process.exitCode = 1

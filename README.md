@@ -208,7 +208,9 @@ secret stay on the server, and the model never calls Jira or Jenkins itself.
    credentials), caches it until it expires and sends it as
    `Authorization: Bearer …` to
    `{AI_BASE_URL}/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent`.
-   If `AI_BASE_URL` already ends with `:generateContent`, nothing is appended.
+   If `AI_BASE_URL` already ends with `:generateContent` (or `AI_PATH=/`),
+   nothing is appended. On a 404 the check tries the usual paths under
+   `AI_BASE_URL` and prints the `AI_PATH` that works.
    If your proxy uses another path, set `AI_PATH`. `ai.env` is never committed.
 2. Run `docker compose up -d`.
 3. Check the settings: `docker compose exec app node dist-server/server/ai/check.js`.

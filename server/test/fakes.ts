@@ -147,6 +147,8 @@ export async function fakeAi() {
   })
   app.use((req, res) => {
     requests.push({ path: req.path, body: req.body, headers: { key: req.get('x-app-key'), secret: req.get('x-app-secret') } })
+    // Signed in with an OAuth token but no such route: 404, like an API gateway.
+    if (req.get('authorization')?.startsWith('Bearer token-')) return void res.status(404).json({ error: { message: `Unable to identify proxy for ${req.path}` } })
     if (req.get('x-app-key') !== AI.key || req.get('x-app-secret') !== AI.secret) {
       return void res.status(401).json({ error: { message: 'invalid app credentials' } })
     }
