@@ -27,6 +27,8 @@ dist-ssr
 .env
 .env.*
 !.env.example
+# AI assistant settings (contain the app key and secret)
+ai.env
 
 # Supabase CLI local state (linked project details, pooler URL)
 supabase/.temp

@@ -17,6 +17,9 @@ export interface OutboundRequest {
   body?: string
   /** Extra trusted CA certificates (PEM), e.g. a company root CA. */
   ca?: string | null
+  timeoutMs?: number
+  /** Include the service's own error message (first 300 chars) in failures. */
+  errorDetail?: boolean
 }
 
 /**
@@ -70,27 +73,47 @@ export async function outbound(url: string, service: string, req: OutboundReques
       headers: { accept: 'application/json', ...req.headers },
       body: req.body,
       redirect: 'manual',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(req.timeoutMs ?? TIMEOUT_MS),
       ...(req.ca ? { dispatcher: agentFor(req.ca) } : {}),
     })) as unknown as Response
   } catch (err) {
-    throw new OutboundError(`${service} ${describeNetworkError(err, url)}`)
+    throw new OutboundError(`${service} ${describeNetworkError(err, url, req.timeoutMs)}`)
   }
   if (res.status >= 300 && res.status < 400) {
     throw new OutboundError(`${service} redirected to ${res.headers.get('location') ?? 'another address'}. Use the final URL.`, res.status)
   }
+  const detail = !res.ok && req.errorDetail ? await errorMessage(res) : ''
   if (res.status === 401 || res.status === 403) {
-    throw new OutboundError(`${service} rejected the credentials (HTTP ${res.status}).`, res.status)
+    throw new OutboundError(`${service} rejected the credentials (HTTP ${res.status}).${detail}`, res.status)
   }
-  if (res.status === 404) throw new OutboundError(`${service}: not found (HTTP 404). Check the URL, key or job path.`, 404)
-  if (!res.ok && res.status !== 201) throw new OutboundError(`${service} returned HTTP ${res.status}.`, res.status)
+  if (res.status === 404) throw new OutboundError(`${service}: not found (HTTP 404). Check the URL, key or job path.${detail}`, 404)
+  if (!res.ok && res.status !== 201) throw new OutboundError(`${service} returned HTTP ${res.status}.${detail}`, res.status)
   return res
 }
 
+/** " Message: …" from a JSON error body ({error:{message}}, {message}…), or "". */
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const text = (await res.text()).slice(0, 20_000)
+    let msg = text
+    try {
+      const j = JSON.parse(text) as { error?: { message?: string } | string; message?: string; detail?: string }
+      msg = (typeof j.error === 'string' ? j.error : j.error?.message) ?? j.message ?? j.detail ?? text
+    } catch {
+      // Not JSON. For HTML error pages, the title (or the text without tags).
+      if (/<html|<!doctype/i.test(text)) msg = /<title>([^<]*)<\/title>/i.exec(text)?.[1] ?? text.replace(/<[^>]*>/g, ' ')
+    }
+    msg = String(msg).replace(/\s+/g, ' ').trim().slice(0, 300)
+    return msg ? ` Message: ${msg}` : ''
+  } catch {
+    return ''
+  }
+}
+
 /** Turns low-level fetch failures into a reason an admin can act on. */
-export function describeNetworkError(err: unknown, url: string): string {
+export function describeNetworkError(err: unknown, url: string, timeoutMs = TIMEOUT_MS): string {
   const e = err as { name?: string; message?: string; cause?: { code?: string; message?: string } }
-  if (e.name === 'TimeoutError') return `did not answer within ${TIMEOUT_MS / 1000}s (${host(url)}). A firewall, VPN or proxy may be blocking it.`
+  if (e.name === 'TimeoutError') return `did not answer within ${timeoutMs / 1000}s (${host(url)}). A firewall, VPN or proxy may be blocking it.`
   const code = e.cause?.code ?? ''
   const detail = code || e.cause?.message || e.message || 'unknown error'
   if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {

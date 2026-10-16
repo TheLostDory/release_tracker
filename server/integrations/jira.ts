@@ -146,3 +146,79 @@ export async function jiraVersionIssues(c: JiraConnection, versionId: string): P
   }
   return { issues: issues.slice(0, MAX_ISSUES), truncated: issues.length >= MAX_ISSUES }
 }
+
+export interface JiraIssueVersions {
+  key: string
+  summary: string
+  type: string
+  status: string
+  statusCategory: JiraIssue['statusCategory']
+  assignee: string | null
+  url: string
+  fixVersions: { id: string; name: string; released: boolean; releaseDate: string | null }[]
+}
+
+type RawVersionedIssue = RawIssue & { fields: RawIssue['fields'] & { fixVersions?: Array<Record<string, unknown>> } }
+
+function mapVersionedIssue(c: JiraConnection, raw: RawVersionedIssue): JiraIssueVersions {
+  const issue = mapIssue(c, raw)
+  return {
+    key: issue.key,
+    summary: issue.summary,
+    type: issue.type,
+    status: issue.status,
+    statusCategory: issue.statusCategory,
+    assignee: issue.assignee,
+    url: issue.url,
+    fixVersions: (raw.fields.fixVersions ?? []).map((v) => ({
+      id: String(v.id),
+      name: String(v.name ?? ''),
+      released: v.released === true,
+      releaseDate: typeof v.releaseDate === 'string' ? v.releaseDate : null,
+    })),
+  }
+}
+
+/**
+ * Up to `limit` issues of the project whose text matches the words (Jira's
+ * own full-text search), with their fix versions. Words are reduced to
+ * letters/digits, so nothing can change the JQL beyond the search text.
+ */
+export async function jiraTextSearch(c: JiraConnection, projectKey: string, words: string[], limit = 15): Promise<JiraIssueVersions[]> {
+  const terms = words.map((w) => w.replace(/[^\p{L}\p{N}]/gu, '')).filter((w) => w.length >= 2).slice(0, 8)
+  if (!terms.length || !isJiraProjectKey(projectKey)) return []
+  const jql = `project = "${projectKey}" AND text ~ "${terms.join(' ')}" ORDER BY updated DESC`
+  const fields = [...FIELDS, 'fixVersions']
+  let raw: RawVersionedIssue[]
+  if (c.authType === 'JIRA_CLOUD') {
+    raw = (
+      await outboundJson<{ issues: RawVersionedIssue[] }>(`${c.baseUrl}/rest/api/3/search/jql`, SERVICE, {
+        method: 'POST',
+        headers: { ...headers(c), 'content-type': 'application/json' },
+        ca: c.ca,
+        body: JSON.stringify({ jql, fields, maxResults: limit }),
+      })
+    ).issues
+  } else {
+    const params = new URLSearchParams({ jql, fields: fields.join(','), maxResults: String(limit) })
+    raw = (await outboundJson<{ issues: RawVersionedIssue[] }>(`${c.baseUrl}/rest/api/2/search?${params}`, SERVICE, { headers: headers(c), ca: c.ca }))
+      .issues
+  }
+  return raw.slice(0, limit).map((i) => mapVersionedIssue(c, i))
+}
+
+/** One issue with its fix versions ("which version shipped ABC-123?"). Null if it doesn't exist. */
+export async function jiraIssueVersions(c: JiraConnection, key: string): Promise<JiraIssueVersions | null> {
+  if (!/^[A-Z][A-Z0-9_]{1,19}-\d{1,9}$/.test(key)) return null
+  const fields = 'summary,status,issuetype,assignee,fixVersions'
+  try {
+    const raw = await outboundJson<RawVersionedIssue>(`${c.baseUrl}/rest/api/2/issue/${encodeURIComponent(key)}?fields=${fields}`, SERVICE, {
+      headers: headers(c),
+      ca: c.ca,
+    })
+    return mapVersionedIssue(c, raw)
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return null
+    throw err
+  }
+}

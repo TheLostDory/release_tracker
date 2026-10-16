@@ -177,6 +177,41 @@ Each job shows its latest build and history and has a **Run** button (members+).
 
 **Network:** the app container calls Jira/Jenkins directly, so your machine must be able to reach them (e.g. be on the company VPN). Redirects aren't followed (credentials are never re-sent to another host), so use the final URL.
 
+## AI assistant ("Ask")
+
+An **Ask** button in the top bar opens a chat about the current project, e.g.
+"Which version was ABC-123 released in?", "What's in 2.4.0?", "Which releases are
+blocked?". It stays hidden until the server is configured.
+
+How it answers: for each question the server collects the data itself, as the
+asking user, so people only get answers about projects they belong to:
+
+- every release in the tracker (dates, steps, blockers, reports, approval);
+- the Jira versions named in the question (or the next and the latest release),
+  with their issues;
+- issue keys in the question → their fix versions;
+- other questions → Jira's own text search (with fix versions);
+- linked Jenkins jobs and their latest builds.
+
+It sends that with the question to the company AI gateway. The gateway's key and
+secret stay on the server, and the model never calls Jira or Jenkins itself.
+
+**Set up (Docker):**
+
+1. `cp ai.env.example ai.env`, then fill in `AI_BASE_URL`, `AI_API_KEY` and
+   `AI_API_SECRET`. Set `AI_HEADERS` to how your gateway expects the key and
+   secret, using the header names from its docs. `ai.env` is never committed.
+2. Set `AI_FORMAT`: `gemini` if the gateway takes Gemini's `generateContent`
+   JSON, `openai` if it takes OpenAI-style `chat/completions`. Set `AI_MODEL`,
+   and `AI_PATH` if the path differs from the default.
+3. Run `docker compose up -d`.
+4. Check: `docker compose exec app node dist-server/server/ai/check.js`. If it
+   reports a certificate problem, it prints the gateway's certificate details
+   and an `AI_CA_CERT=…` line. Check that it is your company's certificate, add
+   the line to `ai.env`, and run `docker compose up -d` again.
+
+For local development, put the same variables in `.env`.
+
 ## Testing
 
 ```bash

@@ -6,6 +6,9 @@ const bool = (fallback: boolean) =>
     .optional()
     .transform((v) => (v === undefined ? fallback : v === 'true' || v === '1'))
 
+/** Unset or blank → undefined (compose passes "" for unset variables). */
+const optional = <T extends z.ZodType>(t: T) => z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), t.optional())
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -25,6 +28,24 @@ const schema = z.object({
   SESSION_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   /** 32+ chars; encrypts integration credentials at rest. */
   ENCRYPTION_KEY: z.string().min(32).optional(),
+
+  // --- AI assistant (optional; disabled unless AI_BASE_URL is set) -----------
+  /** Request format: Gemini generateContent, or OpenAI-compatible chat completions. */
+  AI_FORMAT: z.preprocess((v) => v || undefined, z.enum(['gemini', 'openai']).default('gemini')),
+  /** Base URL of the gateway, e.g. https://airelay.company.com */
+  AI_BASE_URL: optional(z.string().url()),
+  /** Path appended to AI_BASE_URL; {model} is replaced. Defaults per format. */
+  AI_PATH: optional(z.string()),
+  AI_MODEL: z.preprocess((v) => v || undefined, z.string().default('gemini-2.5-flash')),
+  AI_API_KEY: optional(z.string()),
+  AI_API_SECRET: optional(z.string()),
+  /**
+   * Request headers as JSON; {key} and {secret} are replaced, e.g.
+   * {"X-App-Key":"{key}","X-App-Secret":"{secret}"}. Defaults per format.
+   */
+  AI_HEADERS: optional(z.string()),
+  /** Company CA certificate (PEM; \\n escapes allowed) for the gateway, if it needs one. */
+  AI_CA_CERT: optional(z.string()),
 })
 
 export type Config = z.infer<typeof schema>

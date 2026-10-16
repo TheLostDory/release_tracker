@@ -8,6 +8,7 @@ import { forbidden, HttpError, notFound } from '../http/errors.js'
 import { asUser, idParam, uuid } from '../http/helpers.js'
 import { applyTemplate, jenkinsBuilds, jenkinsTrigger, jenkinsWhoAmI, normalizeJobPath } from '../integrations/jenkins.js'
 import { isJiraProjectKey, jiraProjectName, jiraVersionIssues, jiraVersions, jiraWhoAmI, type JiraVersion } from '../integrations/jira.js'
+import { cached, uncache } from '../integrations/cache.js'
 import { inspectCertificates } from '../integrations/certificate.js'
 import { asHttpError, normalizeBaseUrl, normalizeCaCert } from '../integrations/outbound.js'
 import { syncJenkins } from '../integrations/poller.js'
@@ -39,17 +40,6 @@ const jobBody = z.strictObject({
   purpose: z.enum(['AUTOMATED', 'LOAD_TEST', 'LONGEVITY', 'HIT', 'OTHER']),
   parameters: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/), z.string().max(500)).default({}),
 })
-
-/** Short-lived cache for Jira reads (per integration + key). */
-const cache = new Map<string, { at: number; value: unknown }>()
-async function cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
-  const hit = cache.get(key)
-  if (hit && Date.now() - hit.at < ttlMs) return hit.value as T
-  const value = await load()
-  cache.set(key, { at: Date.now(), value })
-  if (cache.size > 500) cache.delete(cache.keys().next().value!)
-  return value
-}
 
 async function releaseInfo(tx: Tx, releaseId: string) {
   const { rows } = await tx.query<{ id: string; project_id: string; name: string; version: string; jira_version_id: string | null }>(
@@ -210,7 +200,7 @@ export function integrationRoutes(db: Db, config: Config) {
       await requireRole(tx, projectId, 'MEMBER')
       const { row, secret } = await loadIntegration(tx, config, projectId, 'JIRA')
       const versions = await jiraVersions(jiraConnection(row, secret), row.settings.projectKey!).catch(asHttpError)
-      cache.delete(`versions:${row.id}`)
+      uncache(`versions:${row.id}`)
       const byId = new Map<string, JiraVersion>(versions.map((v) => [v.id, v]))
       const ids: string[] = []
       for (const versionId of body.versionIds) {
@@ -260,7 +250,7 @@ export function integrationRoutes(db: Db, config: Config) {
       if (!release.jira_version_id) return { linked: false as const }
       const { row, secret } = await loadIntegration(tx, config, release.project_id, 'JIRA')
       const key = `issues:${row.id}:${release.jira_version_id}`
-      if (fresh) cache.delete(key)
+      if (fresh) uncache(key)
       const result = await cached(key, 60_000, () =>
         jiraVersionIssues(jiraConnection(row, secret), release.jira_version_id!).catch(asHttpError),
       )

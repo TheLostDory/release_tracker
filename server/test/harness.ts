@@ -9,10 +9,10 @@ import { ReleaseEvents } from '../realtime.js'
 export const remote = !!process.env.API_BASE_URL
 
 /** Starts the real app on a random port against the test database. */
-export async function startServer() {
+export async function startServer(env: Record<string, string> = {}) {
   if (process.env.API_BASE_URL) return { base: process.env.API_BASE_URL.replace(/\/$/, ''), stop: async () => {} }
   const url = inject('appDatabaseUrl')
-  const config = loadConfig({ DATABASE_URL: url, NODE_ENV: 'test', ENCRYPTION_KEY: 'test-encryption-key-0123456789-abcdefghij' })
+  const config = loadConfig({ DATABASE_URL: url, NODE_ENV: 'test', ENCRYPTION_KEY: 'test-encryption-key-0123456789-abcdefghij', ...env })
   const db = createPool(url)
   const events = new ReleaseEvents(url)
   await events.start()

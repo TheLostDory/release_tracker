@@ -9,3 +9,6 @@ supabase/.branches
 coverage
 *.log
 .DS_Store
+.env
+.env.*
+ai.env

@@ -53,6 +53,10 @@ services:
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-release-tracker-local-encryption-key-change-me}
+    # Optional AI assistant ("Ask" button): copy ai.env.example to ai.env and fill it in.
+    env_file:
+      - path: ai.env
+        required: false
     ports:
       - 127.0.0.1:${APP_PORT:-8800}:3000
 

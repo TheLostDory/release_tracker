@@ -61,13 +61,45 @@ export async function fakeJira({ https = false } = {}) {
     }))
   const versionOf = (jql: string) => /fixVersion = (\d+)/.exec(jql)?.[1] ?? ''
 
+  const searches: string[] = []
   app.get('/rest/api/2/myself', (_req, res) => void res.json({ displayName: 'Release Bot' }))
   app.get('/rest/api/2/project/:key', (req, res) =>
     req.params.key === 'ABC' ? void res.json({ key: 'ABC', name: 'Alpha Product' }) : void res.status(404).end(),
   )
   app.get('/rest/api/2/project/:key/versions', (req, res) => (req.params.key === 'ABC' ? void res.json(versions) : void res.status(404).end()))
+  // One issue with its fix versions; ABC-1…150 are in 1.4.0, ABC-42 also shipped in 1.3.0.
+  const versionRef = (id: string) => {
+    const v = versions.find((x) => x.id === id)!
+    return { id: v.id, name: v.name, released: v.released, ...(v.releaseDate ? { releaseDate: v.releaseDate } : {}) }
+  }
+  const login = {
+    key: 'ABC-42',
+    fields: {
+      summary: 'Login times out behind the SSO proxy',
+      issuetype: { name: 'Bug' },
+      status: { name: 'Done', statusCategory: { key: 'done' } },
+      assignee: { displayName: 'Dev Person' },
+      fixVersions: [versionRef('10000')],
+    },
+  }
+  app.get('/rest/api/2/issue/:key', (req, res) => {
+    if (req.params.key === 'ABC-42') return void res.json(login)
+    const n = Number(/^ABC-(\d+)$/.exec(req.params.key)?.[1])
+    if (!n || n > 150) return void res.status(404).json({ errorMessages: ['Issue does not exist'] })
+    const issue = issues('10001')[n - 1]!
+    res.json({ ...issue, fields: { ...issue.fields, fixVersions: [versionRef('10001')] } })
+  })
+  // Full-text search ("text ~") finds the login bug.
+  const textSearch = (jql: string) => (/text ~ "[^"]*login[^"]*"/i.test(jql) ? [login] : [])
+  app.use((req, _res, next) => {
+    const jql = String(req.body?.jql ?? req.query.jql ?? '')
+    if (jql.includes('text ~')) searches.push(jql)
+    next()
+  })
+
   // Cloud: token pagination.
   app.post('/rest/api/3/search/jql', (req, res) => {
+    if (req.body.jql.includes('text ~')) return void res.json({ issues: textSearch(req.body.jql), isLast: true })
     const all = issues(versionOf(req.body.jql))
     const start = req.body.nextPageToken ? Number(req.body.nextPageToken) : 0
     const page = all.slice(start, start + 100)
@@ -76,11 +108,36 @@ export async function fakeJira({ https = false } = {}) {
   })
   // Server / Data Center: offset pagination.
   app.get('/rest/api/2/search', (req, res) => {
+    if (String(req.query.jql).includes('text ~')) return void res.json({ issues: textSearch(String(req.query.jql)), total: 1, startAt: 0 })
     const all = issues(versionOf(String(req.query.jql)))
     const startAt = Number(req.query.startAt ?? 0)
     res.json({ issues: all.slice(startAt, startAt + 100), total: all.length, startAt, maxResults: 100 })
   })
-  return listen(app, https)
+  return { ...(await listen(app, https)), searches }
+}
+
+export const AI = { key: 'ai-app-key', secret: 'ai-app-secret' }
+
+/**
+ * Fake company AI gateway. Requires the app key + secret headers; answers in
+ * Gemini or OpenAI format and records each request for inspection.
+ */
+export async function fakeAi() {
+  const app = express()
+  app.use(express.json({ limit: '5mb' }))
+  const requests: { path: string; body: any; headers: Record<string, string | undefined> }[] = []
+  app.use((req, res) => {
+    requests.push({ path: req.path, body: req.body, headers: { key: req.get('x-app-key'), secret: req.get('x-app-secret') } })
+    if (req.get('x-app-key') !== AI.key || req.get('x-app-secret') !== AI.secret) {
+      return void res.status(401).json({ error: { message: 'invalid app credentials' } })
+    }
+    if (req.path === '/v1beta/models/gemini-test:generateContent') {
+      return void res.json({ candidates: [{ content: { parts: [{ text: 'ABC-7 shipped in ' }, { text: '1.4.0.' }] } }] })
+    }
+    if (req.path === '/openai/chat/completions') return void res.json({ choices: [{ message: { content: 'From OpenAI format.' } }] })
+    res.status(404).json({ error: { message: `no route ${req.path}` } })
+  })
+  return { ...(await listen(app)), requests }
 }
 
 export const JENKINS = { user: 'ci-bot', token: 'jenkins-api-token' }

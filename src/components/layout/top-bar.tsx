@@ -2,6 +2,7 @@ import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
+import { AssistantPanel } from '@/features/assistant/assistant-panel'
 import { NotificationsMenu } from './notifications-menu'
 import { SprintSelector } from './sprint-selector'
 import { UserMenu } from './user-menu'
@@ -24,6 +25,7 @@ export function TopBar({ onOpenSearch }: { onOpenSearch: () => void }) {
           <span className="hidden sm:inline">Search…</span>
           <kbd className="ml-auto hidden rounded border bg-muted px-1.5 font-mono text-[10px] sm:inline">⌘K</kbd>
         </Button>
+        <AssistantPanel />
         <NotificationsMenu />
         <UserMenu />
       </div>
