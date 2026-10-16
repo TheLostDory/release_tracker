@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { Link } from 'react-router'
+import { Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { QueryError } from '@/components/query-error'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +19,7 @@ import { useCurrentProject } from '@/features/projects/current-project-context'
 import { useCurrentSprint } from '@/features/sprints/current-sprint-context'
 import { formatDay } from '@/lib/dates'
 import { toUserMessage } from '@/lib/errors'
+import { filterVersions } from './jira-versions'
 import { useImportJiraVersions, useJiraVersions } from './queries'
 
 const NO_SPRINT = '__none'
@@ -38,15 +41,24 @@ function ImportJiraBody({ onDone }: { onDone: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showReleased, setShowReleased] = useState(false)
   const [sprintId, setSprintId] = useState<string>(currentSprint?.id ?? NO_SPRINT)
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
 
-  // Unreleased first (soonest release date), archived hidden.
-  const visible = useMemo(
-    () =>
-      (versions ?? [])
-        .filter((v) => !v.archived && (showReleased || !v.released))
-        .sort((a, b) => Number(a.released) - Number(b.released) || (a.releaseDate ?? '9999').localeCompare(b.releaseDate ?? '9999')),
-    [versions, showReleased],
-  )
+  const visible = useMemo(() => filterVersions(versions ?? [], deferredQuery, showReleased), [versions, deferredQuery, showReleased])
+  // Versions that can still be ticked among those shown.
+  const selectable = visible.filter((v) => !v.release)
+  const allShownSelected = selectable.length > 0 && selectable.every((v) => selected.has(v.id))
+
+  function toggleAllShown() {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const v of selectable) {
+        if (allShownSelected) next.delete(v.id)
+        else next.add(v.id)
+      }
+      return next
+    })
+  }
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -80,12 +92,62 @@ function ImportJiraBody({ onDone }: { onDone: () => void }) {
         </DialogDescription>
       </DialogHeader>
 
+      {!isLoading && !error && (
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              type="search"
+              autoFocus
+              aria-label="Search Jira versions"
+              placeholder="Search versions by name or description…"
+              className="h-8 pr-8 pl-8"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // Esc clears the search first instead of closing the dialog.
+                if (e.key === 'Escape' && query) {
+                  e.stopPropagation()
+                  setQuery('')
+                }
+              }}
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                onClick={() => setQuery('')}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span aria-live="polite">
+              {visible.length} version{visible.length === 1 ? '' : 's'}
+              {query.trim() && ` matching “${query.trim()}”`}
+              {selected.size > 0 && ` · ${selected.size} selected`}
+            </span>
+            {selectable.length > 0 && (
+              <button type="button" className="font-medium hover:text-foreground" onClick={toggleAllShown}>
+                {allShownSelected ? 'Clear shown' : `Select all shown (${selectable.length})`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <Skeleton className="h-40 w-full" />
       ) : error ? (
         <QueryError error={error} onRetry={() => void refetch()} />
       ) : visible.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">No {showReleased ? '' : 'unreleased '}versions in Jira.</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {query.trim()
+            ? `No ${showReleased ? '' : 'unreleased '}versions match “${query.trim()}”.`
+            : `No ${showReleased ? '' : 'unreleased '}versions in Jira.`}
+        </p>
       ) : (
         <ul className="max-h-72 divide-y overflow-x-hidden overflow-y-auto rounded-md border">
           {visible.map((v) => (
