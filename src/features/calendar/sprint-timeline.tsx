@@ -34,7 +34,7 @@ export function SprintTimeline({ days, releases, events, conflicts, ownerNames, 
     <div className="overflow-x-auto rounded-lg border" role="region" aria-label="Sprint timeline" tabIndex={0}>
       <div className="grid min-w-max text-sm" style={{ gridTemplateColumns: columns }} role="table">
         <div role="row" className="contents">
-          <div role="columnheader" className="sticky left-0 z-10 border-b bg-background px-3 py-2 text-xs font-medium text-muted-foreground">
+          <div role="columnheader" className="sticky left-0 z-[1] border-b bg-background px-3 py-2 text-xs font-medium text-muted-foreground">
             Release
           </div>
           {days.map((day) => {
@@ -71,7 +71,7 @@ export function SprintTimeline({ days, releases, events, conflicts, ownerNames, 
 
         {releases.map((r) => (
           <div role="row" key={r.id} className="contents">
-            <div role="rowheader" className="sticky left-0 z-10 border-b bg-background px-3 py-2">
+            <div role="rowheader" className="sticky left-0 z-[1] border-b bg-background px-3 py-2">
               <Link to={`/releases/${r.id}`} className="font-medium hover:underline">
                 {r.name}
               </Link>

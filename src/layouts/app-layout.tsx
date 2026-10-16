@@ -61,10 +61,12 @@ function Shell() {
         Skip to content
       </a>
       <AppSidebar />
-      <SidebarInset>
+      {/* min-w-0: wide content (timelines, tables) scrolls inside itself instead of
+          widening the page and sliding under the sidebar. */}
+      <SidebarInset className="min-w-0">
         <TopBar onOpenSearch={openCommand} />
         <OfflineBanner />
-        <main id="main" tabIndex={-1} className="flex-1 p-4 outline-none md:p-6">
+        <main id="main" tabIndex={-1} className="min-w-0 flex-1 p-4 outline-none md:p-6">
           <Suspense fallback={<PageSkeleton />}>
             {needsProject ? <NoProjects /> : <Outlet />}
           </Suspense>
