@@ -33,8 +33,7 @@ export async function outbound(url: string, service: string, req: OutboundReques
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
   } catch (err) {
-    const reason = (err as Error).name === 'TimeoutError' ? 'timed out' : 'could not be reached'
-    throw new OutboundError(`${service} ${reason}. Check the URL and that this server can reach it.`)
+    throw new OutboundError(`${service} ${describeNetworkError(err, url)}`)
   }
   if (res.status >= 300 && res.status < 400) {
     throw new OutboundError(`${service} redirected to ${res.headers.get('location') ?? 'another address'}. Use the final URL.`, res.status)
@@ -45,6 +44,33 @@ export async function outbound(url: string, service: string, req: OutboundReques
   if (res.status === 404) throw new OutboundError(`${service}: not found (HTTP 404). Check the URL, key or job path.`, 404)
   if (!res.ok && res.status !== 201) throw new OutboundError(`${service} returned HTTP ${res.status}.`, res.status)
   return res
+}
+
+/** Turns low-level fetch failures into a reason an admin can act on. */
+export function describeNetworkError(err: unknown, url: string): string {
+  const e = err as { name?: string; message?: string; cause?: { code?: string; message?: string } }
+  if (e.name === 'TimeoutError') return `did not answer within ${TIMEOUT_MS / 1000}s (${host(url)}). A firewall, VPN or proxy may be blocking it.`
+  const code = e.cause?.code ?? ''
+  const detail = code || e.cause?.message || e.message || 'unknown error'
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') {
+    return `could not be found: ${host(url)} doesn't resolve from this server (${code}). Check the URL; if it's an internal address, this server may need the company VPN/DNS.`
+  }
+  if (code === 'ECONNREFUSED') return `refused the connection (${host(url)}, ${code}). Check the URL and port.`
+  if (code === 'ECONNRESET' || code === 'ETIMEDOUT' || code === 'ENETUNREACH' || code === 'EHOSTUNREACH') {
+    return `could not be reached (${host(url)}, ${code}). A firewall, VPN or proxy may be in the way.`
+  }
+  if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER/.test(code)) {
+    return `uses an HTTPS certificate this server doesn't trust (${code}). This is common with company certificate authorities.`
+  }
+  return `could not be reached (${host(url)}: ${detail}).`
+}
+
+function host(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
 }
 
 export async function outboundJson<T>(url: string, service: string, req: OutboundRequest = {}): Promise<T> {
