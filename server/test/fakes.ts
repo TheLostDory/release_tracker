@@ -142,8 +142,16 @@ export async function fakeAi() {
   app.post(`/v1/projects/${AI.project}/locations/europe-west1/publishers/google/models/:model`, (req, res) => {
     requests.push({ path: req.path, body: req.body, headers: { authorization: req.get('authorization') } })
     if (req.get('authorization') !== `Bearer ${validToken}`) return void res.status(401).json({ error: { message: 'Invalid access token' } })
-    if (req.params.model !== 'gemini-2.5-pro:generateContent') return void res.status(404).json({ error: { message: 'model not found' } })
-    res.json({ candidates: [{ content: { role: 'model', parts: [{ text: 'thinking…', thought: true }, { text: 'Vertex says hi.' }] } }] })
+    if (req.body.generationConfig) return void res.status(400).json({ error: { message: 'Unknown field generationConfig' } })
+    if (req.params.model === 'gemini-2.5-pro:generateContent') {
+      return void res.json({ candidates: [{ content: { role: 'model', parts: [{ text: 'thinking…', thought: true }, { text: 'Vertex says hi.' }] } }] })
+    }
+    if (req.params.model === 'gemini-2.5-pro:streamGenerateContent' && req.query.alt === 'sse') {
+      const chunk = (parts: object[]) => `data: ${JSON.stringify({ candidates: [{ content: { role: 'model', parts } }] })}\r\n\r\n`
+      res.type('text/event-stream')
+      return void res.send(chunk([{ text: 'thinking…', thought: true }]) + chunk([{ text: 'Vertex ' }]) + chunk([{ text: 'says hi.' }]))
+    }
+    res.status(404).json({ error: { message: 'model not found' } })
   })
   app.use((req, res) => {
     requests.push({ path: req.path, body: req.body, headers: { key: req.get('x-app-key'), secret: req.get('x-app-secret') } })

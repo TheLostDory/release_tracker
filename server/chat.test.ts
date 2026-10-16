@@ -137,7 +137,9 @@ describe.skipIf(remote)('assistant', () => {
       // Thought parts are left out of the answer.
       expect(r.body.answer).toBe('Vertex says hi.')
       const req = ai.requests.at(-1)!
-      expect(req.path).toBe(`/v1/projects/${AI.project}/locations/europe-west1/publishers/google/models/gemini-2.5-pro:generateContent`)
+      // Same request as the AI Relay extension: streamed, no generationConfig.
+      expect(req.path).toBe(`/v1/projects/${AI.project}/locations/europe-west1/publishers/google/models/gemini-2.5-pro:streamGenerateContent`)
+      expect(req.body.generationConfig).toBeUndefined()
       expect(req.headers.authorization).toBe(`Bearer token-${before + 1}`)
       expect(req.body.systemInstruction.parts[0].text).toContain('fix versions: 1.4.0')
 

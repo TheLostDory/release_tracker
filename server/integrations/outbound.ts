@@ -138,12 +138,18 @@ function host(url: string): string {
   }
 }
 
-export async function outboundJson<T>(url: string, service: string, req: OutboundRequest = {}): Promise<T> {
+/** The response body as text (size-capped), with its content type. */
+export async function outboundText(url: string, service: string, req: OutboundRequest = {}): Promise<{ text: string; contentType: string }> {
   const res = await outbound(url, service, req)
   const length = Number(res.headers.get('content-length') ?? 0)
   if (length > MAX_BYTES) throw new OutboundError(`${service} response is too large.`)
   const text = await res.text()
   if (text.length > MAX_BYTES) throw new OutboundError(`${service} response is too large.`)
+  return { text, contentType: res.headers.get('content-type') ?? '' }
+}
+
+export async function outboundJson<T>(url: string, service: string, req: OutboundRequest = {}): Promise<T> {
+  const { text } = await outboundText(url, service, req)
   try {
     return JSON.parse(text) as T
   } catch {

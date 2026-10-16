@@ -207,7 +207,10 @@ secret stay on the server, and the model never calls Jira or Jenkins itself.
    The server exchanges the client id and secret for a token (client
    credentials), caches it until it expires and sends it as
    `Authorization: Bearer …` to
-   `{AI_BASE_URL}/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent`.
+   `{AI_BASE_URL}/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:streamGenerateContent?alt=sse`.
+   This is the same request the AI Relay IDE extension sends. If you use that
+   extension, copy the values from `~/.airelay/config.properties`; the mapping
+   is in `ai.env.example`.
    If `AI_BASE_URL` already ends with `:generateContent` (or `AI_PATH=/`),
    nothing is appended. On a 404 the check tries the usual paths under
    `AI_BASE_URL` and prints the `AI_PATH` that works.

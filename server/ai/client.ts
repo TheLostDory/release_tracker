@@ -1,6 +1,6 @@
 import type { Config } from '../config.js'
 import { HttpError } from '../http/errors.js'
-import { normalizeCaCert, OutboundError, outboundJson } from '../integrations/outbound.js'
+import { normalizeCaCert, OutboundError, outboundJson, outboundText } from '../integrations/outbound.js'
 
 /**
  * Client for the company AI gateway. Formats: Vertex AI (Gemini) and the
@@ -18,8 +18,9 @@ export const TOKEN_SERVICE = 'The AI login (AI_TOKEN_URL)'
 const TIMEOUT_MS = 90_000
 
 const DEFAULTS = {
+  // Same request as the AI Relay IDE extension's Apigee mode (streamed, read whole).
   vertex: {
-    path: '/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent',
+    path: '/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:streamGenerateContent?alt=sse',
     headers: { authorization: 'Bearer {token}' },
   },
   gemini: { path: '/v1beta/models/{model}:generateContent', headers: { 'x-goog-api-key': '{key}' } },
@@ -74,7 +75,7 @@ export function aiSettings(config: Config) {
   // A base URL that is already the full endpoint (some gateways expose exactly
   // one, or AI_PATH=/) is used as is; otherwise the format's path is appended.
   const base = fillUrl(decodeURI(config.AI_BASE_URL).replace(/\/+$/, ''))
-  const complete = config.AI_PATH === '/' || (!config.AI_PATH && /(:generateContent|:streamGenerateContent|\/chat\/completions)$/.test(base))
+  const complete = config.AI_PATH === '/' || (!config.AI_PATH && /(:generateContent|:streamGenerateContent(\?alt=sse)?|\/chat\/completions)$/.test(base))
   const path = config.AI_PATH ?? DEFAULTS[format].path
   const url = complete ? base : base + fillUrl(path.startsWith('/') ? path : `/${path}`)
   const ca = config.AI_CA_CERT ? normalizeCaCert(config.AI_CA_CERT.replaceAll('\\n', '\n')) : null
@@ -120,6 +121,32 @@ interface OpenAiResponse {
   choices?: { message?: { content?: string | null }; finish_reason?: string }[]
 }
 
+type ModelResponse = GeminiResponse & OpenAiResponse
+
+/** A JSON response, or a server-sent-events stream (streamGenerateContent?alt=sse) as its chunks. */
+export function parseResponse({ text, contentType }: { text: string; contentType: string }): ModelResponse | ModelResponse[] {
+  if (contentType.includes('text/event-stream') || /^\s*data:/.test(text)) {
+    return text
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim())
+      .filter((data) => data && data !== '[DONE]')
+      .flatMap((data) => {
+        try {
+          return [JSON.parse(data) as ModelResponse]
+        } catch {
+          return []
+        }
+      })
+  }
+  try {
+    const parsed = JSON.parse(text) as ModelResponse | ModelResponse[]
+    return parsed
+  } catch {
+    throw new OutboundError(`${SERVICE} didn't return JSON. Check AI_FORMAT and AI_PATH.`)
+  }
+}
+
 /** Sends one conversation; returns the model's text answer. */
 export async function askModel(config: Config, system: string, turns: ChatTurn[]): Promise<string> {
   const s = aiSettings(config)
@@ -128,7 +155,8 @@ export async function askModel(config: Config, system: string, turns: ChatTurn[]
     ? {
         systemInstruction: { parts: [{ text: system }] },
         contents: turns.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.content }] })),
-        generationConfig: { temperature: 0.2, maxOutputTokens: 4096 },
+        // Apigee gateways may validate the body and reject unknown fields: Vertex gets only the basics.
+        ...(s.format === 'gemini' ? { generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } } : {}),
       }
     : {
         model: s.model,
@@ -138,18 +166,20 @@ export async function askModel(config: Config, system: string, turns: ChatTurn[]
       }
 
   const send = async (fresh: boolean) =>
-    outboundJson<GeminiResponse & OpenAiResponse>(s.url, SERVICE, {
-      method: 'POST',
-      headers: { ...s.headers(s.usesToken ? await aiToken(config, s.ca, { fresh }) : ''), 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      ca: s.ca,
-      timeoutMs: TIMEOUT_MS,
-      errorDetail: true,
-    })
+    parseResponse(
+      await outboundText(s.url, SERVICE, {
+        method: 'POST',
+        headers: { ...s.headers(s.usesToken ? await aiToken(config, s.ca, { fresh }) : ''), 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        ca: s.ca,
+        timeoutMs: TIMEOUT_MS,
+        errorDetail: true,
+      }),
+    )
 
   let text: string | undefined
   try {
-    let res: GeminiResponse & OpenAiResponse
+    let res: ModelResponse | ModelResponse[]
     try {
       res = await send(false)
     } catch (err) {
@@ -158,13 +188,17 @@ export async function askModel(config: Config, system: string, turns: ChatTurn[]
       res = await send(true)
     }
     if (geminiLike) {
-      if (res.promptFeedback?.blockReason) throw new OutboundError(`${SERVICE} declined the question (${res.promptFeedback.blockReason}).`)
-      text = res.candidates?.[0]?.content?.parts
-        ?.filter((p) => !p.thought)
+      // One response, or the chunks of a streamed one, each with part of the text.
+      const chunks = Array.isArray(res) ? res : [res]
+      const blocked = chunks.find((c) => c.promptFeedback?.blockReason)?.promptFeedback?.blockReason
+      if (blocked) throw new OutboundError(`${SERVICE} declined the question (${blocked}).`)
+      text = chunks
+        .flatMap((c) => c.candidates?.[0]?.content?.parts ?? [])
+        .filter((p) => !p.thought)
         .map((p) => p.text ?? '')
         .join('')
     } else {
-      text = res.choices?.[0]?.message?.content ?? undefined
+      text = (Array.isArray(res) ? res[0] : res)?.choices?.[0]?.message?.content ?? undefined
     }
   } catch (err) {
     if (err instanceof OutboundError) {

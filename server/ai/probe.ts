@@ -8,6 +8,8 @@ import { aiSettings, aiToken } from './client.js'
  * uses. Only talks to the configured gateway, with the configured login.
  */
 const CANDIDATES: { path: string; format: 'gemini' | 'openai' }[] = [
+  // What the AI Relay IDE extension calls in Apigee mode.
+  { path: '/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:streamGenerateContent?alt=sse', format: 'gemini' },
   { path: '/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent', format: 'gemini' },
   { path: '/v1beta1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent', format: 'gemini' },
   { path: '/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent', format: 'gemini' },
@@ -41,7 +43,7 @@ export async function probeGateway(config: Config): Promise<ProbeResult[]> {
       .replaceAll('{location}', encodeURIComponent(config.AI_LOCATION))
   const question = 'Reply with the single word OK.'
   const bodies = {
-    gemini: { contents: [{ role: 'user', parts: [{ text: question }] }], generationConfig: { maxOutputTokens: 20 } },
+    gemini: { contents: [{ role: 'user', parts: [{ text: question }] }] },
     openai: { model: config.AI_MODEL, messages: [{ role: 'user', content: question }], max_tokens: 20 },
   }
 
