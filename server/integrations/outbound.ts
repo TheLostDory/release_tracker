@@ -97,8 +97,9 @@ async function errorMessage(res: Response): Promise<string> {
     const text = (await res.text()).slice(0, 20_000)
     let msg = text
     try {
-      const j = JSON.parse(text) as { error?: { message?: string } | string; message?: string; detail?: string }
-      msg = (typeof j.error === 'string' ? j.error : j.error?.message) ?? j.message ?? j.detail ?? text
+      const j = JSON.parse(text) as { error?: { message?: string } | string; error_description?: string; message?: string; detail?: string }
+      // OAuth servers: {error: "invalid_client", error_description: "…"}.
+      msg = j.error_description ?? (typeof j.error === 'string' ? j.error : j.error?.message) ?? j.message ?? j.detail ?? text
     } catch {
       // Not JSON. For HTML error pages, the title (or the text without tags).
       if (/<html|<!doctype/i.test(text)) msg = /<title>([^<]*)<\/title>/i.exec(text)?.[1] ?? text.replace(/<[^>]*>/g, ' ')

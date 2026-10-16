@@ -30,17 +30,27 @@ const schema = z.object({
   ENCRYPTION_KEY: z.string().min(32).optional(),
 
   // --- AI assistant (optional; disabled unless AI_BASE_URL is set) -----------
-  /** Request format: Gemini generateContent, or OpenAI-compatible chat completions. */
-  AI_FORMAT: z.preprocess((v) => v || undefined, z.enum(['gemini', 'openai']).default('gemini')),
+  /** Request format: Vertex AI (Gemini) generateContent, Gemini API generateContent, or OpenAI-compatible. */
+  AI_FORMAT: z.preprocess((v) => v || undefined, z.enum(['vertex', 'gemini', 'openai']).default('gemini')),
   /** Base URL of the gateway, e.g. https://airelay.company.com */
   AI_BASE_URL: optional(z.string().url()),
-  /** Path appended to AI_BASE_URL; {model} is replaced. Defaults per format. */
+  /** Path appended to AI_BASE_URL; {model}, {project}, {location} are replaced. Defaults per format. */
   AI_PATH: optional(z.string()),
   AI_MODEL: z.preprocess((v) => v || undefined, z.string().default('gemini-2.5-flash')),
+  /** Vertex AI: Google Cloud project id and location (region). */
+  AI_PROJECT_ID: optional(z.string()),
+  AI_LOCATION: z.preprocess((v) => v || undefined, z.string().default('us-central1')),
+  /** OAuth client-credentials login (e.g. Apigee): the token is sent as {token}. */
+  AI_TOKEN_URL: optional(z.string().url()),
+  AI_CLIENT_ID: optional(z.string()),
+  AI_CLIENT_SECRET: optional(z.string()),
+  AI_TOKEN_SCOPE: optional(z.string()),
+  /** How the client id/secret are sent to the token URL: Basic auth header, or form fields. */
+  AI_TOKEN_AUTH: z.preprocess((v) => v || undefined, z.enum(['basic', 'body']).default('basic')),
   AI_API_KEY: optional(z.string()),
   AI_API_SECRET: optional(z.string()),
   /**
-   * Request headers as JSON; {key} and {secret} are replaced, e.g.
+   * Request headers as JSON; {key}, {secret}, {token}, {model}, {project}, {location} are replaced, e.g.
    * {"X-App-Key":"{key}","X-App-Secret":"{secret}"}. Defaults per format.
    */
   AI_HEADERS: optional(z.string()),

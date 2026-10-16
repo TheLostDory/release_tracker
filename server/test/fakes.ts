@@ -116,7 +116,7 @@ export async function fakeJira({ https = false } = {}) {
   return { ...(await listen(app, https)), searches }
 }
 
-export const AI = { key: 'ai-app-key', secret: 'ai-app-secret' }
+export const AI = { key: 'ai-app-key', secret: 'ai-app-secret', clientId: 'rt-client', clientSecret: 'rt-client-secret', project: 'acme-gen-ai' }
 
 /**
  * Fake company AI gateway. Requires the app key + secret headers; answers in
@@ -126,6 +126,25 @@ export async function fakeAi() {
   const app = express()
   app.use(express.json({ limit: '5mb' }))
   const requests: { path: string; body: any; headers: Record<string, string | undefined> }[] = []
+  // Apigee-style OAuth: client credentials (Basic header or form fields) → bearer token.
+  let issued = 0
+  let validToken = ''
+  const tokenRequests: Record<string, string>[] = []
+  app.post('/oauth/token', express.urlencoded({ extended: false }), (req, res) => {
+    tokenRequests.push({ ...req.body })
+    const b = basic(req) ?? [req.body.client_id, req.body.client_secret]
+    if (req.body.grant_type !== 'client_credentials' || b[0] !== AI.clientId || b[1] !== AI.clientSecret) {
+      return void res.status(401).json({ error: 'invalid_client', error_description: 'Client credentials are invalid' })
+    }
+    validToken = `token-${++issued}`
+    res.json({ access_token: validToken, token_type: 'Bearer', expires_in: '3599' })
+  })
+  app.post(`/v1/projects/${AI.project}/locations/europe-west1/publishers/google/models/:model`, (req, res) => {
+    requests.push({ path: req.path, body: req.body, headers: { authorization: req.get('authorization') } })
+    if (req.get('authorization') !== `Bearer ${validToken}`) return void res.status(401).json({ error: { message: 'Invalid access token' } })
+    if (req.params.model !== 'gemini-2.5-pro:generateContent') return void res.status(404).json({ error: { message: 'model not found' } })
+    res.json({ candidates: [{ content: { role: 'model', parts: [{ text: 'thinking…', thought: true }, { text: 'Vertex says hi.' }] } }] })
+  })
   app.use((req, res) => {
     requests.push({ path: req.path, body: req.body, headers: { key: req.get('x-app-key'), secret: req.get('x-app-secret') } })
     if (req.get('x-app-key') !== AI.key || req.get('x-app-secret') !== AI.secret) {
@@ -137,7 +156,18 @@ export async function fakeAi() {
     if (req.path === '/openai/chat/completions') return void res.json({ choices: [{ message: { content: 'From OpenAI format.' } }] })
     res.status(404).json({ error: { message: `no route ${req.path}` } })
   })
-  return { ...(await listen(app)), requests }
+  return {
+    ...(await listen(app)),
+    requests,
+    tokenRequests,
+    get tokensIssued() {
+      return issued
+    },
+    /** Invalidate the current token (the next call gets 401). */
+    revokeToken() {
+      validToken = 'revoked'
+    },
+  }
 }
 
 export const JENKINS = { user: 'ci-bot', token: 'jenkins-api-token' }

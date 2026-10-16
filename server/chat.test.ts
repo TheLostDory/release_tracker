@@ -120,6 +120,51 @@ describe.skipIf(remote)('assistant', () => {
     expect(body.messages.at(-1)).toEqual({ role: 'user', content: 'Which version was ABC-7 released in?' })
   })
 
+  it('supports Vertex AI behind Apigee (OAuth client credentials, token cached and renewed)', async () => {
+    const vertexEnv = {
+      AI_FORMAT: 'vertex', AI_BASE_URL: ai.url, AI_PROJECT_ID: AI.project, AI_LOCATION: 'europe-west1', AI_MODEL: 'gemini-2.5-pro',
+      AI_TOKEN_URL: `${ai.url}/oauth/token`, AI_CLIENT_ID: AI.clientId, AI_CLIENT_SECRET: AI.clientSecret,
+    }
+    const vertex = await startServer(vertexEnv)
+    const formAuth = await startServer({ ...vertexEnv, AI_TOKEN_AUTH: 'body', AI_TOKEN_SCOPE: 'genai' })
+    const badClient = await startServer({ ...vertexEnv, AI_CLIENT_ID: 'rt-client-2', AI_CLIENT_SECRET: 'wrong' })
+    const noProject = await startServer({ ...vertexEnv, AI_PROJECT_ID: '' })
+    try {
+      const c = await as(vertex)
+      const before = ai.tokensIssued
+      const r = await ask(c, 'Which version was ABC-7 released in?')
+      expect(r.status).toBe(200)
+      // Thought parts are left out of the answer.
+      expect(r.body.answer).toBe('Vertex says hi.')
+      const req = ai.requests.at(-1)!
+      expect(req.path).toBe(`/v1/projects/${AI.project}/locations/europe-west1/publishers/google/models/gemini-2.5-pro:generateContent`)
+      expect(req.headers.authorization).toBe(`Bearer token-${before + 1}`)
+      expect(req.body.systemInstruction.parts[0].text).toContain('fix versions: 1.4.0')
+
+      // The token is reused…
+      await ask(c, 'and again')
+      expect(ai.tokensIssued).toBe(before + 1)
+      // …and renewed once when the gateway rejects it.
+      ai.revokeToken()
+      expect((await ask(c, 'once more')).status).toBe(200)
+      expect(ai.tokensIssued).toBe(before + 2)
+
+      // Client id/secret as form fields, with a scope.
+      expect((await ask(await as(formAuth), 'hello')).status).toBe(200)
+      expect(ai.tokenRequests.at(-1)).toEqual({ grant_type: 'client_credentials', scope: 'genai', client_id: AI.clientId, client_secret: AI.clientSecret })
+
+      const bad = await ask(await as(badClient), 'hello')
+      expect(bad.status).toBe(502)
+      expect(bad.body.error.message).toBe('The AI login (AI_TOKEN_URL) rejected the credentials (HTTP 401). Message: Client credentials are invalid')
+
+      const missing = await ask(await as(noProject), 'hello')
+      expect(missing.status).toBe(503)
+      expect(missing.body.error.message).toMatch(/AI_PROJECT_ID/)
+    } finally {
+      await Promise.all([vertex, formAuth, badClient, noProject].map((x) => x.stop()))
+    }
+  })
+
   it('explains gateway errors', async () => {
     const r = await ask(await as(wrongSecret), 'hello')
     expect(r.status).toBe(502)

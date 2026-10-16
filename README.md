@@ -196,19 +196,31 @@ asking user, so people only get answers about projects they belong to:
 It sends that with the question to the company AI gateway. The gateway's key and
 secret stay on the server, and the model never calls Jira or Jenkins itself.
 
-**Set up (Docker):**
+**Set up (Docker), Gemini on Vertex AI through Apigee:**
 
-1. `cp ai.env.example ai.env`, then fill in `AI_BASE_URL`, `AI_API_KEY` and
-   `AI_API_SECRET`. Set `AI_HEADERS` to how your gateway expects the key and
-   secret, using the header names from its docs. `ai.env` is never committed.
-2. Set `AI_FORMAT`: `gemini` if the gateway takes Gemini's `generateContent`
-   JSON, `openai` if it takes OpenAI-style `chat/completions`. Set `AI_MODEL`,
-   and `AI_PATH` if the path differs from the default.
-3. Run `docker compose up -d`.
-4. Check: `docker compose exec app node dist-server/server/ai/check.js`. If it
-   reports a certificate problem, it prints the gateway's certificate details
-   and an `AI_CA_CERT=…` line. Check that it is your company's certificate, add
-   the line to `ai.env`, and run `docker compose up -d` again.
+1. `cp ai.env.example ai.env` and fill in:
+   - `AI_BASE_URL`: the Apigee gateway address;
+   - `AI_PROJECT_ID`, `AI_LOCATION`: the Google Cloud project id and region;
+   - `AI_MODEL`: the model id, e.g. `gemini-2.5-flash`;
+   - `AI_TOKEN_URL`, `AI_CLIENT_ID`, `AI_CLIENT_SECRET`: the OAuth login.
+
+   The server exchanges the client id and secret for a token (client
+   credentials), caches it until it expires and sends it as
+   `Authorization: Bearer …` to
+   `{AI_BASE_URL}/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent`.
+   If your proxy uses another path, set `AI_PATH`. `ai.env` is never committed.
+2. Run `docker compose up -d`.
+3. Check the settings: `docker compose exec app node dist-server/server/ai/check.js`.
+   It asks the model one tiny question and says what failed:
+   - the login: client id, secret, `AI_TOKEN_AUTH`;
+   - the path: project, location, model;
+   - the certificate. In this case it prints the certificate's details and an
+     `AI_CA_CERT=…` line. Check that it is your company's, add the line to
+     `ai.env`, and run `docker compose up -d` again.
+
+Other gateways: `AI_FORMAT=gemini` uses the Gemini API, and `AI_FORMAT=openai`
+uses OpenAI-compatible chat completions. Both take a static key and secret
+through `AI_HEADERS` (see `ai.env.example`).
 
 For local development, put the same variables in `.env`.
 
