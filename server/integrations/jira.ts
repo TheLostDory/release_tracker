@@ -10,6 +10,8 @@ export interface JiraConnection {
   username: string | null
   /** Cloud: API token. Server/DC: personal access token. */
   secret: string
+  /** Company CA certificate(s) to trust, PEM. */
+  ca?: string | null
 }
 
 export interface JiraVersion {
@@ -51,6 +53,7 @@ function headers(c: JiraConnection): Record<string, string> {
 export async function jiraWhoAmI(c: JiraConnection): Promise<string> {
   const me = await outboundJson<{ displayName?: string; name?: string }>(`${c.baseUrl}/rest/api/2/myself`, SERVICE, {
     headers: headers(c),
+    ca: c.ca,
   })
   return me.displayName ?? me.name ?? 'unknown user'
 }
@@ -58,6 +61,7 @@ export async function jiraWhoAmI(c: JiraConnection): Promise<string> {
 export async function jiraProjectName(c: JiraConnection, projectKey: string): Promise<string> {
   const p = await outboundJson<{ name?: string }>(`${c.baseUrl}/rest/api/2/project/${encodeURIComponent(projectKey)}`, SERVICE, {
     headers: headers(c),
+    ca: c.ca,
   })
   return p.name ?? projectKey
 }
@@ -66,7 +70,7 @@ export async function jiraVersions(c: JiraConnection, projectKey: string): Promi
   const raw = await outboundJson<Array<Record<string, unknown>>>(
     `${c.baseUrl}/rest/api/2/project/${encodeURIComponent(projectKey)}/versions`,
     SERVICE,
-    { headers: headers(c) },
+    { headers: headers(c), ca: c.ca },
   )
   return raw.map((v) => ({
     id: String(v.id),
@@ -119,6 +123,7 @@ export async function jiraVersionIssues(c: JiraConnection, versionId: string): P
         {
           method: 'POST',
           headers: { ...headers(c), 'content-type': 'application/json' },
+          ca: c.ca,
           body: JSON.stringify({ jql, fields: FIELDS, maxResults: 100, ...(nextPageToken ? { nextPageToken } : {}) }),
         },
       )
@@ -132,6 +137,7 @@ export async function jiraVersionIssues(c: JiraConnection, versionId: string): P
       const params = new URLSearchParams({ jql, fields: FIELDS.join(','), startAt: String(startAt), maxResults: '100' })
       const page = await outboundJson<{ issues: RawIssue[]; total: number }>(`${c.baseUrl}/rest/api/2/search?${params}`, SERVICE, {
         headers: headers(c),
+        ca: c.ca,
       })
       issues.push(...page.issues.map((i) => mapIssue(c, i)))
       startAt += page.issues.length

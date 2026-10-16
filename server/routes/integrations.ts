@@ -8,7 +8,8 @@ import { forbidden, HttpError, notFound } from '../http/errors.js'
 import { asUser, idParam, uuid } from '../http/helpers.js'
 import { applyTemplate, jenkinsBuilds, jenkinsTrigger, jenkinsWhoAmI, normalizeJobPath } from '../integrations/jenkins.js'
 import { isJiraProjectKey, jiraProjectName, jiraVersionIssues, jiraVersions, jiraWhoAmI, type JiraVersion } from '../integrations/jira.js'
-import { asHttpError, normalizeBaseUrl } from '../integrations/outbound.js'
+import { inspectCertificates } from '../integrations/certificate.js'
+import { asHttpError, normalizeBaseUrl, normalizeCaCert } from '../integrations/outbound.js'
 import { syncJenkins } from '../integrations/poller.js'
 import {
   jenkinsConnection,
@@ -29,6 +30,8 @@ const saveBody = z.strictObject({
   /** Omit to keep the stored secret. */
   secret: z.string().min(1).max(2000).optional(),
   projectKey: z.string().trim().toUpperCase().optional(),
+  /** Company CA certificate(s), PEM. Omit to keep; null or "" to remove. */
+  caCert: z.string().max(65536).nullable().optional(),
 })
 
 const jobBody = z.strictObject({
@@ -87,6 +90,14 @@ export function integrationRoutes(db: Db, config: Config) {
 
     const result = await asUser(db, req, async (tx) => {
       await requireRole(tx, projectId, 'ADMIN')
+      // Company certificate: keep the stored one unless given ("" / null removes it).
+      let ca: string | null
+      if (body.caCert === undefined) {
+        const existing = await tx.query<{ ca_cert: string | null }>('select ca_cert from integrations where project_id = $1 and kind = $2', [projectId, kind])
+        ca = existing.rows[0]?.ca_cert ?? null
+      } else {
+        ca = body.caCert && body.caCert.trim() ? normalizeCaCert(body.caCert) : null
+      }
       // Keep the stored secret when none is supplied.
       let secret = body.secret
       if (!secret) {
@@ -100,12 +111,12 @@ export function integrationRoutes(db: Db, config: Config) {
       let summary: string
       try {
         if (kind === 'JIRA') {
-          const conn = { baseUrl, authType: body.authType as 'JIRA_CLOUD' | 'JIRA_SERVER', username, secret }
+          const conn = { baseUrl, authType: body.authType as 'JIRA_CLOUD' | 'JIRA_SERVER', username, secret, ca }
           const who = await jiraWhoAmI(conn)
           const projectName = await jiraProjectName(conn, body.projectKey!)
           summary = `Connected as ${who} · project ${projectName} (${body.projectKey})`
         } else {
-          const what = await jenkinsWhoAmI({ baseUrl, username, secret })
+          const what = await jenkinsWhoAmI({ baseUrl, username, secret, ca })
           summary = `Connected to ${what} as ${username}`
         }
       } catch (err) {
@@ -117,20 +128,28 @@ export function integrationRoutes(db: Db, config: Config) {
       // counts as reading the secret column, which the app login can't do.
       const updated = await tx.query(
         `update integrations set auth_type = $3, base_url = $4, username = $5, secret_encrypted = $6, settings = $7,
-           last_error = null, last_checked_at = now()
+           ca_cert = $8, last_error = null, last_checked_at = now()
          where project_id = $1 and kind = $2`,
-        [projectId, kind, body.authType, baseUrl, username, encrypted, settings],
+        [projectId, kind, body.authType, baseUrl, username, encrypted, settings, ca],
       )
       if (!updated.rowCount) {
         await tx.query(
-          `insert into integrations (project_id, kind, auth_type, base_url, username, secret_encrypted, settings, created_by, last_checked_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
-          [projectId, kind, body.authType, baseUrl, username, encrypted, settings, userId(req)],
+          `insert into integrations (project_id, kind, auth_type, base_url, username, secret_encrypted, settings, created_by, ca_cert, last_checked_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())`,
+          [projectId, kind, body.authType, baseUrl, username, encrypted, settings, userId(req), ca],
         )
       }
       return summary
     })
     res.json({ ok: true, message: result })
+  })
+
+  /** The certificate chain a server presents (untrusted), so an admin can choose to trust its root. */
+  router.post('/projects/:id/integrations/inspect-certificate', async (req, res) => {
+    const projectId = idParam(req)
+    const { baseUrl } = z.strictObject({ baseUrl: z.string().max(500) }).parse(req.body)
+    await asUser(db, req, (tx) => requireRole(tx, projectId, 'ADMIN'))
+    res.json(await inspectCertificates(normalizeBaseUrl(baseUrl)))
   })
 
   router.post('/projects/:id/integrations/:kind/test', async (req, res) => {

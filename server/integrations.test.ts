@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { fakeJenkins, fakeJira, JENKINS, JIRA } from './test/fakes.js'
+import { COMPANY_CA, fakeJenkins, fakeJira, JENKINS, JIRA } from './test/fakes.js'
 import { client, remote, startServer } from './test/harness.js'
 
 /** Jira + Jenkins integrations against fake servers (local test DB only). */
@@ -167,12 +167,56 @@ describe.skipIf(remote)('integrations', () => {
       authType: 'JENKINS', baseUrl: jenkins.url, username: 'x', secret: 'y',
     })).status).toBe(403)
     expect((await maya.del(`/api/projects/${projectId}/integrations/jira`)).status).toBe(403)
+    expect((await maya.post(`/api/projects/${projectId}/integrations/inspect-certificate`, { baseUrl: 'https://example.com' })).status).toBe(403)
 
     // Outsiders see nothing.
     const omar = client(server.base)
     await omar.login('omar@example.com')
     expect((await omar.get(`/api/projects/${projectId}/integrations`)).body).toEqual([])
     expect((await omar.get(`/api/releases/${release.id}/jenkins`)).status).toBe(404)
+  })
+
+  it('trusts a pasted company certificate (SELF_SIGNED_CERT_IN_CHAIN)', async () => {
+    const corp = await fakeJira({ https: true })
+    try {
+      const c = await owner()
+      const p = (await c.post('/api/projects', { name: `Corp TLS ${Date.now()}`, sprintsEnabled: false })).body.id
+      const base = { authType: 'JIRA_SERVER', baseUrl: corp.url, secret: JIRA.pat, projectKey: 'ABC' }
+
+      // Without the company CA: refused, with an actionable message.
+      const untrusted = await c.put(`/api/projects/${p}/integrations/jira`, base)
+      expect(untrusted.status).toBe(502)
+      expect(untrusted.body.error.message).toMatch(/SELF_SIGNED_CERT_IN_CHAIN/)
+      expect(untrusted.body.error.message).toMatch(/Company HTTPS certificate/)
+
+      // Garbage isn't accepted as a certificate.
+      expect((await c.put(`/api/projects/${p}/integrations/jira`, { ...base, caCert: 'hello' })).status).toBe(422)
+
+      // Admins can read the chain the server presents and pick its root.
+      const inspected = await c.post(`/api/projects/${p}/integrations/inspect-certificate`, { baseUrl: corp.url })
+      expect(inspected.status).toBe(200)
+      const root = inspected.body.certificates[inspected.body.recommended]
+      expect(root).toMatchObject({ subject: 'Test Company Root CA', issuer: 'Test Company Root CA', selfSigned: true })
+      expect(inspected.body.certificates[0].subject).toBe('localhost')
+      // The fetched root is enough to connect.
+      expect((await c.put(`/api/projects/${p}/integrations/jira`, { ...base, caCert: root.pem })).status).toBe(200)
+
+      // With the company CA: connects; verification stays on.
+      const trusted = await c.put(`/api/projects/${p}/integrations/jira`, { ...base, caCert: COMPANY_CA })
+      expect(trusted.status).toBe(200)
+      const saved = (await c.get(`/api/projects/${p}/integrations`)).body[0]
+      expect(saved.ca_cert).toContain('BEGIN CERTIFICATE')
+
+      // Kept when re-saving without it; used for every later call.
+      expect((await c.put(`/api/projects/${p}/integrations/jira`, base)).status).toBe(200)
+      expect((await c.get(`/api/projects/${p}/jira/versions`)).body.map((v: any) => v.name)).toContain('1.4.0')
+
+      // Removing it brings the error back.
+      expect((await c.put(`/api/projects/${p}/integrations/jira`, { ...base, caCert: '' })).status).toBe(502)
+      await c.del(`/api/projects/${p}`)
+    } finally {
+      await corp.close()
+    }
   })
 
   it('rejects unsafe input', async () => {

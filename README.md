@@ -165,6 +165,16 @@ Connect per project in **Settings → Project → Integrations** (admins and own
 
 Each job shows its latest build and history and has a **Run** button (members+). The server checks linked jobs of undeployed releases **every 2 minutes**, plus *Sync now*. Changes appear in the activity log as *Jenkins*.
 
+**Company certificates** (`SELF_SIGNED_CERT_IN_CHAIN`, "certificate this server doesn't trust"): many companies sign internal sites with their own certificate authority. Your Mac trusts it; the app's container doesn't. Paste the company root certificate into **Company HTTPS certificate** in the connection form. It's trusted only for that connection, and normal verification stays on. To get it on a Mac:
+
+- **Keychain Access** → *System* keychain → *Certificates* → your company's root CA → *File → Export Items…* → format *Privacy Enhanced Mail (.pem)* → open the file in TextEdit and copy everything. Or ask IT for the "root CA certificate in PEM format".
+- **Or, in Terminal** (while on the company network), copy the certificate chain the server presents to the clipboard:
+
+  ```bash
+  openssl s_client -showcerts -connect jira.yourcompany.com:443 -servername jira.yourcompany.com </dev/null 2>/dev/null \
+    | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' | pbcopy
+  ```
+
 **Network:** the app container calls Jira/Jenkins directly, so your machine must be able to reach them (e.g. be on the company VPN). Redirects aren't followed (credentials are never re-sent to another host), so use the final URL.
 
 ## Testing

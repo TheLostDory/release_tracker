@@ -13,6 +13,8 @@ export interface Integration {
   settings: { projectKey?: string }
   last_error: string | null
   last_checked_at: string | null
+  /** Company CA certificate(s) trusted for this connection (public, PEM). */
+  ca_cert: string | null
 }
 
 export interface SaveIntegrationInput {
@@ -22,6 +24,8 @@ export interface SaveIntegrationInput {
   /** Omit to keep the stored token. */
   secret?: string
   projectKey?: string
+  /** Omit to keep; "" removes. */
+  caCert?: string
 }
 
 export interface JiraVersion {
@@ -77,6 +81,22 @@ const kindPath = (kind: IntegrationKind) => kind.toLowerCase()
 export const listIntegrations = (projectId: string) => api.get<Integration[]>(`/projects/${projectId}/integrations`)
 export const saveIntegration = (projectId: string, kind: IntegrationKind, input: SaveIntegrationInput) =>
   api.put<{ message: string }>(`/projects/${projectId}/integrations/${kindPath(kind)}`, input)
+export interface PresentedCertificate {
+  subject: string
+  issuer: string
+  validTo: string
+  fingerprint256: string
+  selfSigned: boolean
+  pem: string
+}
+
+/** Reads (doesn't trust) the certificate chain a server presents. Admins only. */
+export const inspectCertificate = (projectId: string, baseUrl: string) =>
+  api.post<{ host: string; certificates: PresentedCertificate[]; recommended: number }>(
+    `/projects/${projectId}/integrations/inspect-certificate`,
+    { baseUrl },
+  )
+
 export const testIntegration = (projectId: string, kind: IntegrationKind) =>
   api.post<{ message: string }>(`/projects/${projectId}/integrations/${kindPath(kind)}/test`)
 export const deleteIntegration = (projectId: string, kind: IntegrationKind) =>

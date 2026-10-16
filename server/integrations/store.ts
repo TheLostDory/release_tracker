@@ -17,9 +17,10 @@ export interface IntegrationRow {
   settings: { projectKey?: string }
   last_error: string | null
   last_checked_at: string | null
+  ca_cert: string | null
 }
 
-export const PUBLIC_COLUMNS = 'id, project_id, kind, auth_type, base_url, username, settings, last_error, last_checked_at'
+export const PUBLIC_COLUMNS = 'id, project_id, kind, auth_type, base_url, username, settings, last_error, last_checked_at, ca_cert'
 
 export function requireKey(config: Config): string {
   if (!config.ENCRYPTION_KEY) {
@@ -51,10 +52,15 @@ export const jiraConnection = (row: IntegrationRow, secret: string): JiraConnect
   authType: row.auth_type as JiraAuth,
   username: row.username,
   secret,
+  ca: row.ca_cert,
 })
 
-export const jenkinsConnection = (row: { base_url: string; username: string | null }, secret: string): JenkinsConnection => ({
+export const jenkinsConnection = (
+  row: { base_url: string; username: string | null; ca_cert: string | null },
+  secret: string,
+): JenkinsConnection => ({
   baseUrl: row.base_url,
   username: row.username,
   secret,
+  ca: row.ca_cert,
 })

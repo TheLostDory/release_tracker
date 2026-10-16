@@ -11,7 +11,7 @@ import { SettingsSection } from '@/features/projects/settings/settings-section'
 import type { Project } from '@/features/projects/api'
 import { formatTimestamp } from '@/lib/dates'
 import { toUserMessage } from '@/lib/errors'
-import type { Integration, IntegrationAuth, IntegrationKind } from './api'
+import { inspectCertificate, type Integration, type IntegrationAuth, type IntegrationKind, type PresentedCertificate } from './api'
 import { useDeleteIntegration, useIntegrations, useSaveIntegration, useTestIntegration } from './queries'
 
 const LABELS: Record<IntegrationKind, string> = { JIRA: 'Jira', JENKINS: 'Jenkins' }
@@ -103,6 +103,12 @@ function IntegrationCard({
             <>
               <dt className="text-muted-foreground">{kind === 'JIRA' ? 'Account' : 'User'}</dt>
               <dd className="truncate">{integration.username}</dd>
+            </>
+          )}
+          {integration.ca_cert && (
+            <>
+              <dt className="text-muted-foreground">HTTPS</dt>
+              <dd>Company certificate trusted</dd>
             </>
           )}
           {integration.last_checked_at && (
@@ -197,6 +203,25 @@ function IntegrationForm({
   const [username, setUsername] = useState(integration?.username ?? '')
   const [secret, setSecret] = useState('')
   const [projectKey, setProjectKey] = useState(integration?.settings.projectKey ?? '')
+  // undefined = unchanged; '' = remove; text = new certificate.
+  const [caCert, setCaCert] = useState<string | undefined>(undefined)
+  const [showCa, setShowCa] = useState(false)
+  const [fetched, setFetched] = useState<{ host: string; cert: PresentedCertificate } | null>(null)
+  const [fetching, setFetching] = useState(false)
+
+  async function fetchCertificate() {
+    setFetching(true)
+    setError(null)
+    try {
+      const r = await inspectCertificate(projectId, baseUrl.trim())
+      const cert = r.certificates[r.recommended]
+      if (cert) setFetched({ host: r.host, cert })
+    } catch (err) {
+      setError(toUserMessage(err))
+    } finally {
+      setFetching(false)
+    }
+  }
   const [error, setError] = useState<string | null>(null)
   const cloud = authType === 'JIRA_CLOUD'
 
@@ -212,12 +237,16 @@ function IntegrationForm({
           username: kind === 'JENKINS' || cloud ? username.trim() || null : null,
           ...(secret ? { secret } : {}),
           ...(kind === 'JIRA' ? { projectKey: projectKey.trim().toUpperCase() } : {}),
+          ...(caCert !== undefined ? { caCert } : {}),
         },
       })
       toast.success(result.message)
       onDone()
     } catch (err) {
-      setError(toUserMessage(err))
+      const message = toUserMessage(err)
+      setError(message)
+      // Certificate problem: open the certificate section to fix it right away.
+      if (/certificate|SELF_SIGNED|UNABLE_TO_VERIFY/i.test(message)) setShowCa(true)
     }
   }
 
@@ -271,6 +300,84 @@ function IntegrationForm({
           {(p) => <Input {...p} className="font-mono uppercase" value={projectKey} onChange={(e) => setProjectKey(e.target.value)} />}
         </FormField>
       )}
+      <div className="rounded-md border border-dashed p-2">
+        <button
+          type="button"
+          className="text-xs font-medium text-muted-foreground hover:text-foreground"
+          aria-expanded={showCa || !!integration?.ca_cert}
+          onClick={() => setShowCa((v) => !v)}
+        >
+          {showCa ? '▾' : '▸'} Company HTTPS certificate {integration?.ca_cert ? '(installed)' : '(optional)'}
+        </button>
+        {showCa && (
+          <div className="mt-2 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Needed when {LABELS[kind]} uses your company’s own certificate authority (errors like
+              “SELF_SIGNED_CERT_IN_CHAIN”). Get it from the server below, or paste it (PEM). It is trusted only for this
+              connection; normal certificate checks stay on.
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={fetching || !/^https:\/\//i.test(baseUrl.trim())}
+              onClick={() => void fetchCertificate()}
+            >
+              {fetching ? 'Reading certificate…' : `Get certificate from ${LABELS[kind]}`}
+            </Button>
+            {fetched && (
+              <div className="space-y-2 rounded-md bg-muted/50 p-2 text-xs">
+                <p>
+                  <span className="font-medium">{fetched.host}</span> is signed by:
+                </p>
+                <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5">
+                  <dt className="text-muted-foreground">Certificate</dt>
+                  <dd className="font-medium">{fetched.cert.subject}</dd>
+                  <dt className="text-muted-foreground">Issued by</dt>
+                  <dd>{fetched.cert.issuer}{fetched.cert.selfSigned && ' (root)'}</dd>
+                  <dt className="text-muted-foreground">Expires</dt>
+                  <dd>{formatTimestamp(fetched.cert.validTo, 'MMM d, yyyy')}</dd>
+                  <dt className="text-muted-foreground">Fingerprint</dt>
+                  <dd className="font-mono break-all">{fetched.cert.fingerprint256}</dd>
+                </dl>
+                <p className="text-muted-foreground">
+                  Trust it only if this is your company’s certificate authority (the name usually contains your company).
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="xs"
+                    onClick={() => {
+                      setCaCert(fetched.cert.pem)
+                      setFetched(null)
+                      toast.success('Certificate added. Click “Test & save”.')
+                    }}
+                  >
+                    Trust this certificate
+                  </Button>
+                  <Button type="button" size="xs" variant="ghost" onClick={() => setFetched(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+            <textarea
+              aria-label="Company HTTPS certificate (PEM)"
+              rows={5}
+              spellCheck={false}
+              className="w-full rounded-md border bg-background p-2 font-mono text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder={integration?.ca_cert ? '(installed: leave empty to keep it)' : '-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----'}
+              value={caCert ?? ''}
+              onChange={(e) => setCaCert(e.target.value)}
+            />
+            {integration?.ca_cert && (
+              <Button type="button" size="xs" variant="ghost" onClick={() => setCaCert('')}>
+                Remove installed certificate on save
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

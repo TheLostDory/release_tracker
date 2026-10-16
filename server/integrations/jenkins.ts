@@ -5,6 +5,8 @@ export interface JenkinsConnection {
   baseUrl: string
   username: string | null
   secret: string
+  /** Company CA certificate(s) to trust, PEM. */
+  ca?: string | null
 }
 
 export interface JenkinsBuild {
@@ -55,7 +57,7 @@ export function jobUrl(c: JenkinsConnection, jobPath: string): string {
 
 /** Verifies credentials; returns the Jenkins version when advertised. */
 export async function jenkinsWhoAmI(c: JenkinsConnection): Promise<string> {
-  const res = await outbound(`${c.baseUrl}/api/json?tree=mode`, SERVICE, { headers: headers(c) })
+  const res = await outbound(`${c.baseUrl}/api/json?tree=mode`, SERVICE, { headers: headers(c), ca: c.ca })
   await res.text()
   return res.headers.get('x-jenkins') ? `Jenkins ${res.headers.get('x-jenkins')}` : 'Jenkins'
 }
@@ -74,6 +76,7 @@ export async function jenkinsBuilds(c: JenkinsConnection, jobPath: string, limit
   const tree = `builds[number,result,building,url,timestamp,duration,artifacts[relativePath]]{0,${limit}}`
   const job = await outboundJson<{ builds?: RawBuild[] }>(`${jobUrl(c, jobPath)}/api/json?tree=${encodeURIComponent(tree)}`, SERVICE, {
     headers: headers(c),
+    ca: c.ca,
   })
   return (job.builds ?? []).map((b) => {
     const html = b.artifacts?.find((a) => /\.html?$/i.test(a.relativePath))
@@ -94,7 +97,7 @@ export async function jenkinsBuilds(c: JenkinsConnection, jobPath: string, limit
 export async function jenkinsTrigger(c: JenkinsConnection, jobPath: string, parameters: Record<string, string>): Promise<void> {
   const hasParams = Object.keys(parameters).length > 0
   const url = `${jobUrl(c, jobPath)}/${hasParams ? `buildWithParameters?${new URLSearchParams(parameters)}` : 'build'}`
-  const res = await outbound(url, SERVICE, { method: 'POST', headers: headers(c) })
+  const res = await outbound(url, SERVICE, { method: 'POST', headers: headers(c), ca: c.ca })
   await res.text()
 }
 

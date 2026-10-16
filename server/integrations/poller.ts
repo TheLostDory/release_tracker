@@ -12,6 +12,7 @@ interface SyncJob {
   base_url: string
   username: string | null
   secret_encrypted: string
+  ca_cert: string | null
 }
 
 /**
@@ -37,7 +38,7 @@ export async function syncJenkins(db: Db, config: Config, releaseId?: string): P
           secret = decrypt(job.secret_encrypted, config.ENCRYPTION_KEY!)
           secrets.set(job.integration_id, secret)
         }
-        const [latest] = await jenkinsBuilds({ baseUrl: job.base_url, username: job.username, secret }, job.job_path, 1)
+        const [latest] = await jenkinsBuilds({ baseUrl: job.base_url, username: job.username, secret, ca: job.ca_cert }, job.job_path, 1)
         await db.query('select jenkins_record_build($1, $2, null)', [job.job_id, latest ? JSON.stringify(latest) : null])
         synced++
       } catch (err) {

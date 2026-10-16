@@ -1,3 +1,6 @@
+import { createHash, X509Certificate } from 'node:crypto'
+import { rootCertificates } from 'node:tls'
+import { Agent, fetch as undiciFetch } from 'undici'
 import { HttpError } from '../http/errors.js'
 
 /**
@@ -12,6 +15,43 @@ export interface OutboundRequest {
   method?: 'GET' | 'POST'
   headers?: Record<string, string>
   body?: string
+  /** Extra trusted CA certificates (PEM), e.g. a company root CA. */
+  ca?: string | null
+}
+
+/**
+ * One connection pool per distinct company CA: standard public roots PLUS
+ * the given certificates (verification stays on; nothing is disabled).
+ */
+const agents = new Map<string, Agent>()
+function agentFor(ca: string): Agent {
+  const key = createHash('sha256').update(ca).digest('hex')
+  let agent = agents.get(key)
+  if (!agent) {
+    agent = new Agent({ connect: { ca: [...rootCertificates, ...splitPem(ca)] } })
+    agents.set(key, agent)
+  }
+  return agent
+}
+
+export function splitPem(pem: string): string[] {
+  return pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? []
+}
+
+/** Validates pasted PEM text; returns normalized PEM or throws a 422 with the reason. */
+export function normalizeCaCert(raw: string): string {
+  const certs = splitPem(raw.trim())
+  if (certs.length === 0) {
+    throw new HttpError(422, 'Paste the certificate in PEM format (-----BEGIN CERTIFICATE----- …).', 'invalid')
+  }
+  for (const pem of certs) {
+    try {
+      new X509Certificate(pem)
+    } catch {
+      throw new HttpError(422, 'One of the pasted certificates could not be read.', 'invalid')
+    }
+  }
+  return certs.join('\n') + '\n'
 }
 
 export class OutboundError extends Error {
@@ -25,13 +65,14 @@ export class OutboundError extends Error {
 export async function outbound(url: string, service: string, req: OutboundRequest = {}): Promise<Response> {
   let res: Response
   try {
-    res = await fetch(url, {
+    res = (await undiciFetch(url, {
       method: req.method ?? 'GET',
       headers: { accept: 'application/json', ...req.headers },
       body: req.body,
       redirect: 'manual',
       signal: AbortSignal.timeout(TIMEOUT_MS),
-    })
+      ...(req.ca ? { dispatcher: agentFor(req.ca) } : {}),
+    })) as unknown as Response
   } catch (err) {
     throw new OutboundError(`${service} ${describeNetworkError(err, url)}`)
   }
@@ -60,7 +101,7 @@ export function describeNetworkError(err: unknown, url: string): string {
     return `could not be reached (${host(url)}, ${code}). A firewall, VPN or proxy may be in the way.`
   }
   if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER/.test(code)) {
-    return `uses an HTTPS certificate this server doesn't trust (${code}). This is common with company certificate authorities.`
+    return `uses an HTTPS certificate this server doesn't trust (${code}). If your company uses its own certificate authority, paste its certificate under "Company HTTPS certificate" in the connection settings.`
   }
   return `could not be reached (${host(url)}: ${detail}).`
 }

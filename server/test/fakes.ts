@@ -1,5 +1,11 @@
+import { readFileSync } from 'node:fs'
+import { createServer } from 'node:https'
 import type { AddressInfo } from 'node:net'
 import express, { type Request } from 'express'
+
+const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')
+/** The fake company root CA (PEM) that signed the HTTPS fakes' certificate. */
+export const COMPANY_CA = fixture('ca.pem')
 
 /**
  * Minimal fake Jira and Jenkins servers for the integration tests. They check
@@ -13,15 +19,19 @@ function basic(req: Request): [string, string] | null {
   return [u ?? '', p.join(':')]
 }
 
-async function listen(app: express.Express) {
-  const server = app.listen(0)
+async function listen(app: express.Express, https = false) {
+  // HTTPS mode serves a certificate signed by a private "company" CA and sends
+  // the whole chain incl. the root, like corporate servers that trigger
+  // SELF_SIGNED_CERT_IN_CHAIN.
+  const server = https ? createServer({ cert: fixture('server-chain.pem'), key: fixture('server.key') }, app).listen(0) : app.listen(0)
   await new Promise((r) => server.once('listening', r))
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, close: () => new Promise((r) => server.close(r)) }
+  const port = (server.address() as AddressInfo).port
+  return { url: https ? `https://localhost:${port}` : `http://127.0.0.1:${port}`, close: () => new Promise((r) => server.close(r)) }
 }
 
 export const JIRA = { email: 'bot@example.com', token: 'jira-cloud-token', pat: 'jira-server-pat' }
 
-export async function fakeJira() {
+export async function fakeJira({ https = false } = {}) {
   const app = express()
   app.use(express.json())
   const ok = (req: Request) => {
@@ -70,7 +80,7 @@ export async function fakeJira() {
     const startAt = Number(req.query.startAt ?? 0)
     res.json({ issues: all.slice(startAt, startAt + 100), total: all.length, startAt, maxResults: 100 })
   })
-  return listen(app)
+  return listen(app, https)
 }
 
 export const JENKINS = { user: 'ci-bot', token: 'jenkins-api-token' }
