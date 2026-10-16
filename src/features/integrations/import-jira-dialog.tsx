@@ -71,7 +71,7 @@ function ImportJiraBody({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <DialogHeader>
         <DialogTitle>Import from Jira</DialogTitle>
         <DialogDescription>
@@ -87,28 +87,37 @@ function ImportJiraBody({ onDone }: { onDone: () => void }) {
       ) : visible.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">No {showReleased ? '' : 'unreleased '}versions in Jira.</p>
       ) : (
-        <ul className="max-h-72 divide-y overflow-y-auto rounded-md border">
+        <ul className="max-h-72 divide-y overflow-x-hidden overflow-y-auto rounded-md border">
           {visible.map((v) => (
             <li key={v.id}>
-              <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/50">
+              <label className="flex min-w-0 cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted/50">
                 <input
                   type="checkbox"
-                  className="size-4 accent-foreground"
+                  className="size-4 shrink-0 accent-foreground"
                   disabled={!!v.release}
                   checked={!!v.release || selected.has(v.id)}
                   onChange={() => toggle(v.id)}
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="font-medium">{v.name}</span>
+                  <span className="font-medium break-words">{v.name}</span>
                   {v.released && <span className="ml-2 text-xs text-muted-foreground">released</span>}
-                  {v.description && <span className="block truncate text-xs text-muted-foreground">{v.description}</span>}
+                  {v.description && (
+                    <span className="block truncate text-xs text-muted-foreground" title={v.description}>
+                      {v.description}
+                    </span>
+                  )}
                 </span>
                 {v.release ? (
-                  <Link to={`/releases/${v.release.id}`} onClick={onDone} className="text-xs text-muted-foreground hover:underline">
+                  <Link
+                    to={`/releases/${v.release.id}`}
+                    onClick={onDone}
+                    title={`Imported as ${v.release.name}`}
+                    className="max-w-[40%] shrink-0 truncate text-right text-xs text-muted-foreground hover:underline"
+                  >
                     Imported as {v.release.name}
                   </Link>
                 ) : (
-                  <span className="text-xs text-muted-foreground tabular-nums">{v.releaseDate ? formatDay(v.releaseDate) : 'no date'}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{v.releaseDate ? formatDay(v.releaseDate) : 'no date'}</span>
                 )}
               </label>
             </li>
