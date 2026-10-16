@@ -157,6 +157,18 @@ describe.skipIf(remote)('assistant', () => {
       expect(bad.status).toBe(502)
       expect(bad.body.error.message).toBe('The AI login (AI_TOKEN_URL) rejected the credentials (HTTP 401). Message: Client credentials are invalid')
 
+      // Gateway URL that already is the whole endpoint (placeholders allowed): used as is.
+      const full = await startServer({
+        ...vertexEnv,
+        AI_BASE_URL: `${ai.url}/v1/projects/{project}/locations/europe-west1/publishers/google/models/{model}:generateContent`,
+      })
+      try {
+        expect((await ask(await as(full), 'hello')).body.answer).toBe('Vertex says hi.')
+        expect(ai.requests.at(-1)!.path).toBe(`/v1/projects/${AI.project}/locations/europe-west1/publishers/google/models/gemini-2.5-pro:generateContent`)
+      } finally {
+        await full.stop()
+      }
+
       const missing = await ask(await as(noProject), 'hello')
       expect(missing.status).toBe(503)
       expect(missing.body.error.message).toMatch(/AI_PROJECT_ID/)

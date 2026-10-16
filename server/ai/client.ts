@@ -71,8 +71,12 @@ export function aiSettings(config: Config) {
           .replaceAll('{location}', config.AI_LOCATION),
       ]),
     )
+  // A base URL that is already the full endpoint (some gateways expose exactly
+  // one) is used as is; otherwise the format's path is appended.
+  const base = fillUrl(decodeURI(config.AI_BASE_URL).replace(/\/+$/, ''))
+  const complete = !config.AI_PATH && /(:generateContent|:streamGenerateContent|\/chat\/completions)$/.test(base)
   const path = config.AI_PATH ?? DEFAULTS[format].path
-  const url = config.AI_BASE_URL.replace(/\/+$/, '') + fillUrl(path.startsWith('/') ? path : `/${path}`)
+  const url = complete ? base : base + fillUrl(path.startsWith('/') ? path : `/${path}`)
   const ca = config.AI_CA_CERT ? normalizeCaCert(config.AI_CA_CERT.replaceAll('\\n', '\n')) : null
   return { format, url, headers, headerNames: Object.keys(template), ca, model: config.AI_MODEL, usesToken: !!config.AI_TOKEN_URL }
 }
