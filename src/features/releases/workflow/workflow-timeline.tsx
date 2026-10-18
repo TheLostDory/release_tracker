@@ -39,7 +39,7 @@ export function WorkflowTimeline({ tasks, current }: { tasks: readonly ReleaseTa
             />
           )}
           <span
-            className={cn('relative z-10 flex size-5 items-center justify-center rounded-full border-2', DOT[s.state])}
+            className={cn('relative z-[1] flex size-5 items-center justify-center rounded-full border-2', DOT[s.state])}
           >
             {s.state === 'done' && <Check className="size-3" strokeWidth={3} />}
             {s.state === 'skipped' && <Minus className="size-3" strokeWidth={3} />}

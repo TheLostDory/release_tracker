@@ -9,7 +9,7 @@ import { UserMenu } from './user-menu'
 
 export function TopBar({ onOpenSearch }: { onOpenSearch: () => void }) {
   return (
-    <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
+    <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
       <SidebarTrigger />
       <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-4" />
       <SprintSelector />
