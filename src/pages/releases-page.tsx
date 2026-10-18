@@ -86,7 +86,7 @@ export default function ReleasesPage() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {sprintsEnabled && (
         <Select value={sprintParam} onValueChange={(v) => setParam('sprint', v)}>
-          <SelectTrigger size="sm" className="w-44" aria-label="Filter by sprint">
+          <SelectTrigger size="sm" className="w-auto max-w-full min-w-44" aria-label="Filter by sprint">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

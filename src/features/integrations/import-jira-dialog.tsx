@@ -194,7 +194,7 @@ function ImportJiraBody({ onDone }: { onDone: () => void }) {
         </label>
         {currentProject?.sprints_enabled && (
           <Select value={sprintId} onValueChange={setSprintId}>
-            <SelectTrigger size="sm" className="w-44" aria-label="Sprint for imported releases">
+            <SelectTrigger size="sm" className="w-auto max-w-full min-w-44" aria-label="Sprint for imported releases">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

@@ -12,7 +12,11 @@ export function SprintSelector() {
   return (
     <Select value={currentSprint.id} onValueChange={setCurrentSprintId}>
       <SelectTrigger size="sm" className="w-auto min-w-40 gap-2" aria-label="Current sprint">
-        <SelectValue />
+        {/* The full name always; the dates only where there is room (they're in the list too). */}
+        <SelectValue>
+          <span className="font-medium">{currentSprint.name}</span>
+          <span className="hidden text-xs text-muted-foreground sm:inline">{formatDayRange(currentSprint.start_date, currentSprint.end_date)}</span>
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {sprints.map((s) => (
