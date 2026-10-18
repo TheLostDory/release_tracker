@@ -176,11 +176,12 @@ running Jenkins job. Each one shows:
 - the builds it started.
 
 The runs drive the step:
-- every run passed → completed;
-- any failure → blocked, with the reason;
+- every run finished → completed. Passed or *unstable* both count: unstable
+  means some tests were flagged, and the run stays amber so it's visible;
+- a run failed or was aborted → blocked, with the reason;
 - anything running → in progress.
 
-A passing Load Test, Longevity or HIT run also fills that report's link (its
+A finished (passed or unstable) Load Test, Longevity or HIT run also fills that report's link (its
 HTML report, if it has one). Pasting a new run into a slot replaces the old
 one, e.g. after a re-run. The server re-checks running jobs every 2 minutes,
 so the step updates even when nobody has the page open. Finished runs appear

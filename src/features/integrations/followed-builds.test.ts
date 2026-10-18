@@ -26,11 +26,12 @@ describe('summarizeDownstream', () => {
         node({ result: 'FAILURE' }),
         node({ children: [node({ result: 'SUCCESS' }), node({ building: true, result: null })] }),
         node({ queued: true, number: null, result: null }),
+        node({ result: 'UNSTABLE' }),
       ],
     })
     const s = summarizeDownstream(tree)
-    expect(s).toEqual({ total: 5, passed: 2, failed: 1, running: 1, queued: 1 })
-    expect(summaryText(s)).toBe('5 downstream builds: 2 passed · 1 failed · 1 running · 1 queued')
+    expect(s).toEqual({ total: 6, passed: 2, unstable: 1, failed: 1, running: 1, queued: 1 })
+    expect(summaryText(s)).toBe('6 downstream builds: 2 passed · 1 unstable · 1 failed · 1 running · 1 queued')
   })
 
   it('says nothing when the build started no others', () => {

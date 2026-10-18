@@ -75,6 +75,12 @@ describe.skipIf(remote)('automated job runs', () => {
     expect(await step()).toMatchObject({ status: 'COMPLETED', blocker_reason: null })
     expect((await report('LONGEVITY')).report_url).toBe(job('perf/longevity', 21))
 
+    // UNSTABLE (e.g. some tests flagged) doesn't block: it counts as finished and fills the report.
+    jenkins.jobs.get('perf/longevity')!.push({ number: 22, result: 'UNSTABLE', building: false })
+    await c.post(`/api/releases/${releaseId}/jenkins/followed`, { url: job('perf/longevity', 22), purpose: 'LONGEVITY' })
+    expect(await step()).toMatchObject({ status: 'COMPLETED', blocker_reason: null })
+    expect((await report('LONGEVITY')).report_url).toBe(job('perf/longevity', 22))
+
     // Removing a run re-applies the rule to the rest.
     expect((await c.del(`/api/jenkins/followed/${load.body.id}`)).status).toBe(204)
     expect((await step()).status).toBe('COMPLETED')

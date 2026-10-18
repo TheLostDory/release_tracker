@@ -51,8 +51,8 @@ export function AutomatedJobsPanel({
       <div>
         <h4 className="text-xs font-medium">Jenkins jobs</h4>
         <p className="text-xs font-normal text-muted-foreground">
-          Paste the link of each running job. This step completes when they all pass and is blocked if one fails; a passing job fills
-          its report link.
+          Paste the link of each running job. This step completes when they all finish (passed or unstable) and is blocked if one fails
+          or is aborted; a finished job fills its report link.
         </p>
       </div>
       <ul className="space-y-2">

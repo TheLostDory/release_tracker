@@ -3,6 +3,8 @@ import type { BuildNode } from './api'
 export interface DownstreamSummary {
   total: number
   passed: number
+  /** Finished with warnings (e.g. some tests flagged); not a failure. */
+  unstable: number
   failed: number
   running: number
   queued: number
@@ -10,14 +12,15 @@ export interface DownstreamSummary {
 
 /** Counts every build below `node` (not the node itself). */
 export function summarizeDownstream(node: BuildNode): DownstreamSummary {
-  const s: DownstreamSummary = { total: 0, passed: 0, failed: 0, running: 0, queued: 0 }
+  const s: DownstreamSummary = { total: 0, passed: 0, unstable: 0, failed: 0, running: 0, queued: 0 }
   const walk = (n: BuildNode) => {
     for (const ch of n.children) {
       s.total++
       if (ch.queued) s.queued++
       else if (ch.building) s.running++
       else if (ch.result === 'SUCCESS') s.passed++
-      else if (ch.result === 'FAILURE' || ch.result === 'UNSTABLE' || ch.result === 'ABORTED') s.failed++
+      else if (ch.result === 'UNSTABLE') s.unstable++
+      else if (ch.result === 'FAILURE' || ch.result === 'ABORTED') s.failed++
       walk(ch)
     }
   }
@@ -29,6 +32,7 @@ export function summaryText(s: DownstreamSummary): string {
   if (s.total === 0) return ''
   const parts = [
     s.passed && `${s.passed} passed`,
+    s.unstable && `${s.unstable} unstable`,
     s.failed && `${s.failed} failed`,
     s.running && `${s.running} running`,
     s.queued && `${s.queued} queued`,

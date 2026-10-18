@@ -412,7 +412,19 @@ export function integrationRoutes(db: Db, config: Config) {
       const purpose = body.purpose ?? null
       // A new Load Test / Longevity / HIT run replaces the previous one (e.g. a re-run).
       if (purpose && purpose !== 'AUTOMATED') {
-        await tx.query('delete from release_jenkins_builds where release_id = $1 and purpose = $2', [releaseId, purpose])
+        const replaced = await tx.query<{ status: { url?: string; reportUrl?: string | null } | null }>(
+          'delete from release_jenkins_builds where release_id = $1 and purpose = $2 returning status',
+          [releaseId, purpose],
+        )
+        // The report link the old run filled belongs to the old run: the new run fills it once it finishes.
+        const oldLinks = replaced.rows.flatMap((r) => [r.status?.url, r.status?.reportUrl]).filter((u): u is string => !!u)
+        if (oldLinks.length) {
+          await tx.query('update reports set report_url = null where release_id = $1 and report_type = $2 and report_url = any($3)', [
+            releaseId,
+            purpose,
+            oldLinks,
+          ])
+        }
       }
       const r = await tx.query<{ id: string }>(
         `insert into release_jenkins_builds (release_id, job_path, build_number, label, purpose, created_by)
