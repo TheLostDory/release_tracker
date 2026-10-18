@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, CircleCheck, GitCompareArrows, GitPullRequest, ListTodo, RefreshCw, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import type { ReleaseDetail } from '@/features/releases/api'
 import { releaseKeys } from '@/features/releases/queries'
 import { formatTimestamp } from '@/lib/dates'
@@ -12,17 +11,32 @@ import { toUserMessage } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 import { getCodeComparison, type CodeComparison } from './api'
 import type { ComparisonTab } from './code-comparison'
-import { integrationKeys, useCodeComparison, useCodeRefs, useConnected, useSaveCodeRefs } from './queries'
+import { integrationKeys, useCodeComparison, useCodeRefs, useConnected } from './queries'
+
+/** Header button on every release (when GitHub is connected): opens the comparison. */
+export function CodeCompareButton({ releaseId, projectId }: { releaseId: string; projectId: string }) {
+  const { github } = useConnected(projectId)
+  if (!github) return null
+  return (
+    <Button asChild size="sm" variant="outline">
+      <Link to={`/releases/${releaseId}/compare`}>
+        <GitCompareArrows />
+        Code vs Jira
+      </Link>
+    </Button>
+  )
+}
 
 /**
- * "Does what was merged into the RC match Jira?" at the top of every release:
- * the result at a glance, or what's missing to get one.
+ * The result at a glance, for releases where the comparison is set up (it's
+ * optional: nothing shows until someone chooses the branches).
  */
-export function CodeCheckCard({ release, canEdit, canManage }: { release: ReleaseDetail; canEdit: boolean; canManage: boolean }) {
+export function CodeCheckCard({ release }: { release: ReleaseDetail }) {
   const { github } = useConnected(release.project_id)
   const refs = useCodeRefs(release.id)
-  const configured = refs.data?.connected && refs.data.refs.length > 0
-  const comparison = useCodeComparison(release.id, !!github && !!configured && !!release.jira_version_id)
+  const configured = !!github && !!refs.data?.connected && refs.data.refs.length > 0
+  const comparison = useCodeComparison(release.id, configured)
+  if (!configured) return null
   const compareUrl = `/releases/${release.id}/compare`
 
   return (
@@ -33,39 +47,18 @@ export function CodeCheckCard({ release, canEdit, canManage }: { release: Releas
           Code vs Jira
           {comparison.data && <Verdict data={comparison.data} />}
         </h2>
-        {github && configured && (
-          <div className="flex items-center gap-2">
-            {comparison.data && <RefreshButton releaseId={release.id} busy={comparison.isFetching} />}
-            <Button asChild size="sm" variant={comparison.data && differences(comparison.data) > 0 ? 'default' : 'outline'}>
-              <Link to={compareUrl}>
-                Open comparison <ArrowRight />
-              </Link>
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {comparison.data && <RefreshButton releaseId={release.id} busy={comparison.isFetching} />}
+          <Button asChild size="sm" variant={comparison.data && differences(comparison.data) > 0 ? 'default' : 'outline'}>
+            <Link to={compareUrl}>
+              Open comparison <ArrowRight />
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <div className="mt-3">
-        {!github ? (
-          <Setup
-            text="Check that what was merged into the release candidate matches the issues in its Jira version: nothing missing, nothing extra."
-            action={
-              canManage ? (
-                <Button asChild size="sm">
-                  <Link to="/settings/project">Connect GitHub</Link>
-                </Button>
-              ) : (
-                <span className="text-xs text-muted-foreground">Ask a project admin to connect GitHub in Settings.</span>
-              )
-            }
-          />
-        ) : !release.jira_version_id ? (
-          <Setup text="Link this release to its Jira version (Jira section below) to compare it with the code." />
-        ) : refs.isLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : !configured ? (
-          <StartComparing releaseId={release.id} refs={refs.data} canEdit={canEdit} compareUrl={compareUrl} />
-        ) : comparison.isLoading ? (
+        {comparison.isLoading ? (
           <p className="text-sm text-muted-foreground">Reading the RC from GitHub and the version from Jira…</p>
         ) : comparison.error ? (
           <p className="text-sm text-destructive">
@@ -172,80 +165,5 @@ function RefreshButton({ releaseId, busy }: { releaseId: string; busy: boolean }
     <Button size="icon-sm" variant="ghost" aria-label="Check again" title="Check again" disabled={busy} onClick={() => void refresh()}>
       <RefreshCw className={cn(busy && 'animate-spin')} />
     </Button>
-  )
-}
-
-function StartComparing({
-  releaseId,
-  refs,
-  canEdit,
-  compareUrl,
-}: {
-  releaseId: string
-  refs: ReturnType<typeof useCodeRefs>['data']
-  canEdit: boolean
-  compareUrl: string
-}) {
-  const save = useSaveCodeRefs(releaseId)
-  const suggestions = refs?.connected ? refs.suggestions.filter((s) => s.baseRef && s.headRef) : []
-  if (!canEdit) return <Setup text="Not set up for this release yet. A member can choose the RC branch to compare." />
-  if (suggestions.length === 0) {
-    return (
-      <Setup
-        text="Choose the release candidate branch to compare with Jira."
-        action={
-          <Button asChild size="sm">
-            <Link to={compareUrl}>Choose branches</Link>
-          </Button>
-        }
-      />
-    )
-  }
-  return (
-    <Setup
-      text={
-        <>
-          Compare{' '}
-          {suggestions.map((s, i) => (
-            <span key={s.repo}>
-              {i > 0 && ', '}
-              <span className="font-medium">{s.repo}</span>{' '}
-              <span className="font-mono text-xs">
-                {s.headRef} (since {s.baseRef})
-              </span>
-            </span>
-          ))}{' '}
-          with the Jira version?
-        </>
-      }
-      action={
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            disabled={save.isPending}
-            onClick={() =>
-              save.mutate(suggestions, {
-                onError: (err) => toast.error(toUserMessage(err)),
-              })
-            }
-          >
-            <GitCompareArrows />
-            {save.isPending ? 'Starting…' : 'Start comparing'}
-          </Button>
-          <Button asChild size="sm" variant="outline">
-            <Link to={compareUrl}>Other branches</Link>
-          </Button>
-        </div>
-      }
-    />
-  )
-}
-
-function Setup({ text, action }: { text: React.ReactNode; action?: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="max-w-2xl text-sm text-muted-foreground">{text}</p>
-      {action}
-    </div>
   )
 }

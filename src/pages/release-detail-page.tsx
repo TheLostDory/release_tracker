@@ -7,7 +7,7 @@ import { PageTitle } from '@/components/page-title'
 import { ReleaseStatusBadge } from '@/components/status-badges'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CodeCheckCard } from '@/features/integrations/code-check-card'
+import { CodeCheckCard, CodeCompareButton } from '@/features/integrations/code-check-card'
 import { JenkinsSection } from '@/features/integrations/jenkins-section'
 import { JiraSection } from '@/features/integrations/jira-section'
 import { useCurrentProject } from '@/features/projects/current-project-context'
@@ -99,6 +99,7 @@ export default function ReleaseDetailPage() {
             {release.description && <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{release.description}</p>}
           </div>
           <div className="flex items-center gap-2">
+            <CodeCompareButton releaseId={release.id} projectId={release.project_id} />
             {readOnly ? (
               <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">View only</span>
             ) : (
@@ -160,7 +161,7 @@ export default function ReleaseDetailPage() {
         )}
       </header>
 
-      <CodeCheckCard release={release} canEdit={permissions.canEdit} canManage={permissions.canManage} />
+      <CodeCheckCard release={release} />
 
       <Section title="Progress">
         <div className="rounded-lg border px-2 pt-4 pb-2">

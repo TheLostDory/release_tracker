@@ -222,17 +222,17 @@ release?".
 - the RC branch pattern (default `release/{{version}}`).
 
 **Where it shows:**
-- **Release page:** a *Code vs Jira* card at the top of every release, with
-  the result at a glance and each count linking to its list. Until it's set
-  up, the card says what's missing and starts with one click from the
-  suggested branches.
+- **Release page:** a *Code vs Jira* button in the header of every release
+  (once GitHub is connected). The comparison is optional per release; once
+  it's set up, a card under the header shows the result at a glance, and
+  each count links to its list.
 - **Releases list:** a *Code vs Jira* column.
 - **Dashboard:** an *Action required* item for releases whose code doesn't
   match Jira.
 
 The latest result of each release is saved; opening the release checks again.
 
-**Compare:** open the card's *Open comparison* (or *Start comparing*). For each repository, pick the release candidate branch or tag, and
+**Compare:** click *Code vs Jira* on the release. For each repository, pick the release candidate branch or tag, and
 what it is compared with. The previous release's RC is suggested. The page
 reads every commit in the RC that isn't in the previous one, and the pull
 requests they came from. It then picks out Jira keys from:
