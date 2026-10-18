@@ -180,8 +180,8 @@ export function isActive(node: api.BuildNode | null): boolean {
 export function useFollowBuild(releaseId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: { url: string; label?: string | null }) => api.followBuild(releaseId, input),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: integrationKeys.followedBuilds(releaseId) }),
+    mutationFn: (input: Parameters<typeof api.followBuild>[1]) => api.followBuild(releaseId, input),
+    onSuccess: () => invalidateRuns(qc, releaseId),
   })
 }
 
@@ -189,7 +189,7 @@ export function useUnfollowBuild(releaseId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: api.unfollowBuild,
-    onSuccess: () => void qc.invalidateQueries({ queryKey: integrationKeys.followedBuilds(releaseId) }),
+    onSuccess: () => invalidateRuns(qc, releaseId),
   })
 }
 
@@ -218,4 +218,11 @@ export function useCodeComparison(releaseId: string, enabled: boolean) {
     retry: false,
     staleTime: 2 * 60_000,
   })
+}
+
+/** Runs can change the Automated jobs step, the report links and the activity log. */
+export function invalidateRuns(qc: ReturnType<typeof useQueryClient>, releaseId: string) {
+  void qc.invalidateQueries({ queryKey: integrationKeys.followedBuilds(releaseId) })
+  void qc.invalidateQueries({ queryKey: releaseKeys.detail(releaseId) })
+  void qc.invalidateQueries({ queryKey: releaseKeys.activity(releaseId) })
 }

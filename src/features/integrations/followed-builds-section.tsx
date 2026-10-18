@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog'
@@ -11,13 +12,15 @@ import { toUserMessage } from '@/lib/errors'
 import { safeHttpUrl } from '@/lib/safe-url'
 import { cn } from '@/lib/utils'
 import type { BuildNode, FollowedBuild } from './api'
-import { buildProgress, formatDuration, summarizeDownstream, summaryText } from './followed-builds'
+import { buildProgress, formatDuration, summarizeDownstream, summaryText, timeLeftText } from './followed-builds'
 import { BuildResultBadge } from './build-result-badge'
-import { isActive, useFollowBuild, useFollowedBuilds, useFollowedBuildStatus, useUnfollowBuild } from './queries'
+import { invalidateRuns, isActive, useFollowBuild, useFollowedBuilds, useFollowedBuildStatus, useUnfollowBuild } from './queries'
 
 /** Builds pasted by link, with the live status of everything each one started. */
 export function FollowedBuilds({ releaseId, canEdit }: { releaseId: string; canEdit: boolean }) {
-  const { data: followed = [], isLoading } = useFollowedBuilds(releaseId, true)
+  const { data: all = [], isLoading } = useFollowedBuilds(releaseId, true)
+  // Runs added to the Automated jobs step are shown there.
+  const followed = all.filter((f) => !f.purpose)
   const [adding, setAdding] = useState(false)
 
   return (
@@ -43,7 +46,9 @@ export function FollowedBuilds({ releaseId, canEdit }: { releaseId: string; canE
       ) : (
         <ul className="space-y-2">
           {followed.map((f) => (
-            <FollowedCard key={f.id} followed={f} releaseId={releaseId} canEdit={canEdit} />
+            <li key={f.id}>
+              <FollowedCard followed={f} releaseId={releaseId} canEdit={canEdit} />
+            </li>
           ))}
         </ul>
       )}
@@ -51,7 +56,20 @@ export function FollowedBuilds({ releaseId, canEdit }: { releaseId: string; canE
   )
 }
 
-function FollowForm({ releaseId, onDone }: { releaseId: string; onDone: () => void }) {
+export function FollowForm({
+  releaseId,
+  onDone,
+  purpose = null,
+  withLabel = true,
+  cancellable = true,
+}: {
+  releaseId: string
+  onDone: () => void
+  purpose?: FollowedBuild['purpose']
+  withLabel?: boolean
+  /** False for an empty slot: there is nothing to go back to. */
+  cancellable?: boolean
+}) {
   const follow = useFollowBuild(releaseId)
   const [url, setUrl] = useState('')
   const [label, setLabel] = useState('')
@@ -61,8 +79,8 @@ function FollowForm({ releaseId, onDone }: { releaseId: string; onDone: () => vo
     e.preventDefault()
     setError(null)
     try {
-      await follow.mutateAsync({ url: url.trim(), label: label.trim() || null })
-      toast.success('Following the build')
+      await follow.mutateAsync({ url: url.trim(), label: label.trim() || null, purpose })
+      toast.success(purpose ? 'Job added' : 'Following the build')
       onDone()
     } catch (err) {
       setError(toUserMessage(err))
@@ -70,7 +88,7 @@ function FollowForm({ releaseId, onDone }: { releaseId: string; onDone: () => vo
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_12rem_auto]">
+    <form onSubmit={onSubmit} noValidate className={cn('grid gap-2 rounded-lg border p-3', withLabel ? 'sm:grid-cols-[1fr_12rem_auto]' : 'sm:grid-cols-[1fr_auto]')}>
       <Input
         autoFocus
         required
@@ -80,20 +98,24 @@ function FollowForm({ releaseId, onDone }: { releaseId: string; onDone: () => vo
         value={url}
         onChange={(e) => setUrl(e.target.value)}
       />
-      <Input aria-label="Label (optional)" placeholder="Label (optional)" maxLength={100} value={label} onChange={(e) => setLabel(e.target.value)} />
+      {withLabel && (
+        <Input aria-label="Label (optional)" placeholder="Label (optional)" maxLength={100} value={label} onChange={(e) => setLabel(e.target.value)} />
+      )}
       <div className="flex gap-2">
         <Button type="submit" size="sm" className="h-9" disabled={follow.isPending || !url.trim()}>
-          {follow.isPending ? 'Reading build…' : 'Follow'}
+          {follow.isPending ? 'Reading build…' : purpose ? 'Add' : 'Follow'}
         </Button>
-        <Button type="button" size="sm" variant="outline" className="h-9" onClick={onDone}>
-          Cancel
-        </Button>
+        {cancellable && (
+          <Button type="button" size="sm" variant="outline" className="h-9" onClick={onDone}>
+            Cancel
+          </Button>
+        )}
       </div>
-      <p className="text-xs text-muted-foreground sm:col-span-3">
+      <p className={cn('text-xs text-muted-foreground', withLabel ? 'sm:col-span-3' : 'sm:col-span-2')}>
         Paste a build link (or a job link to follow its latest run). Classic and Blue Ocean links both work.
       </p>
       {error && (
-        <p role="alert" className="text-sm text-destructive sm:col-span-3">
+        <p role="alert" className={cn('text-sm text-destructive', withLabel ? 'sm:col-span-3' : 'sm:col-span-2')}>
           {error}
         </p>
       )}
@@ -101,7 +123,18 @@ function FollowForm({ releaseId, onDone }: { releaseId: string; onDone: () => vo
   )
 }
 
-function FollowedCard({ followed, releaseId, canEdit }: { followed: FollowedBuild; releaseId: string; canEdit: boolean }) {
+export function FollowedCard({
+  followed,
+  releaseId,
+  canEdit,
+  heading,
+}: {
+  followed: FollowedBuild
+  releaseId: string
+  canEdit: boolean
+  /** Shown before the title, e.g. "Load Test". */
+  heading?: string
+}) {
   const { data = followed, isFetching, refetch, dataUpdatedAt } = useFollowedBuildStatus(followed)
   // Progress is as of the last answer from Jenkins (refreshed every 15 s while running).
   const now = dataUpdatedAt || Date.parse(followed.last_synced_at ?? followed.created_at)
@@ -110,13 +143,25 @@ function FollowedCard({ followed, releaseId, canEdit }: { followed: FollowedBuil
   const root = data.status
   const summary = root ? summaryText(summarizeDownstream(root)) : ''
   const title = data.label || `${data.job_path} #${data.build_number}`
+  const timeLeft = root ? timeLeftText(root, now) : null
+
+  // A run that finishes can change the step, the report link and the activity log.
+  const qc = useQueryClient()
+  const state = root ? `${root.building}-${root.result}` : ''
+  const lastState = useRef(state)
+  useEffect(() => {
+    if (lastState.current !== state && followed.purpose) invalidateRuns(qc, releaseId)
+    lastState.current = state
+  }, [state, followed.purpose, qc, releaseId])
 
   return (
-    <li className="rounded-lg border p-3 text-sm">
+    <div className="rounded-lg border p-3 text-sm">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="min-w-0 flex-1 truncate font-medium" title={title}>
+          {heading && <span className="mr-2 text-muted-foreground">{heading}</span>}
           {title}
         </span>
+        {timeLeft && <span className="text-xs text-blue-700 tabular-nums dark:text-blue-400">{timeLeft}</span>}
         {root && <StatusBadge node={root} />}
         <Button
           size="icon-sm"
@@ -135,6 +180,11 @@ function FollowedCard({ followed, releaseId, canEdit }: { followed: FollowedBuil
         )}
       </div>
       {root && <BuildRow node={root} now={now} showBadge={false} />}
+      {root?.reportUrl && safeHttpUrl(root.reportUrl) && (
+        <a href={root.reportUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:underline">
+          Test report <ExternalLink className="inline size-3" aria-hidden />
+        </a>
+      )}
       {root && <Progress node={root} now={now} />}
       {summary && <p className="mt-1 text-xs text-muted-foreground">{summary}</p>}
       {data.last_error && (
@@ -160,7 +210,7 @@ function FollowedCard({ followed, releaseId, canEdit }: { followed: FollowedBuil
           })
         }
       />
-    </li>
+    </div>
   )
 }
 
@@ -195,6 +245,8 @@ function BuildTree({ nodes, now }: { nodes: BuildNode[]; now: number }) {
 function BuildRow({ node, now, showBadge = true }: { node: BuildNode; now: number; showBadge?: boolean }) {
   const href = safeHttpUrl(node.url)
   const pct = buildProgress(node, now)
+  // The card's header already shows the followed run's time left.
+  const left = showBadge ? timeLeftText(node, now) : null
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 py-1 text-xs">
       {showBadge && <StatusBadge node={node} />}
@@ -209,6 +261,7 @@ function BuildRow({ node, now, showBadge = true }: { node: BuildNode; now: numbe
         {node.timestamp ? formatTimestamp(new Date(node.timestamp).toISOString()) : ''}
         {!node.building && node.duration ? ` · ${formatDuration(node.duration)}` : ''}
         {pct !== null ? ` · ~${pct}%` : ''}
+        {left ? ` · ${left}` : ''}
       </span>
       {node.error && <span className="text-red-600 dark:text-red-400">{node.error}</span>}
     </div>

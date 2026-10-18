@@ -52,9 +52,11 @@ const saveBody = z.strictObject({
 const followBody = z.strictObject({
   url: z.string().trim().min(1).max(2000),
   label: z.string().trim().max(100).nullable().optional(),
+  /** Added from the Automated jobs step: which job it is. Load Test / Longevity / HIT replace the previous run. */
+  purpose: z.enum(['AUTOMATED', 'LOAD_TEST', 'LONGEVITY', 'HIT']).nullable().optional(),
 })
 
-const FOLLOWED_COLUMNS = 'id, release_id, job_path, build_number, label, status, last_synced_at, last_error, created_at'
+const FOLLOWED_COLUMNS = 'id, release_id, job_path, build_number, label, purpose, status, last_synced_at, last_error, created_at'
 
 const jobBody = z.strictObject({
   jobPath: z.string().min(1).max(500),
@@ -407,12 +409,21 @@ export function integrationRoutes(db: Db, config: Config) {
       // A job link (or "lastBuild") means its latest run: follow that run.
       const number = await resolveBuildNumber(conn, ref).catch(asHttpError)
       const status = await jenkinsBuildTree(conn, { jobPath: ref.jobPath, build: number }).catch(asHttpError)
-      const r = await tx.query(
-        `insert into release_jenkins_builds (release_id, job_path, build_number, label, status, last_synced_at, created_by)
-         values ($1, $2, $3, $4, $5, now(), $6) returning ${FOLLOWED_COLUMNS}`,
-        [releaseId, ref.jobPath, number, body.label || null, JSON.stringify(status), userId(req)],
+      const purpose = body.purpose ?? null
+      // A new Load Test / Longevity / HIT run replaces the previous one (e.g. a re-run).
+      if (purpose && purpose !== 'AUTOMATED') {
+        await tx.query('delete from release_jenkins_builds where release_id = $1 and purpose = $2', [releaseId, purpose])
+      }
+      const r = await tx.query<{ id: string }>(
+        `insert into release_jenkins_builds (release_id, job_path, build_number, label, purpose, created_by)
+         values ($1, $2, $3, $4, $5, $6) returning id`,
+        [releaseId, ref.jobPath, number, body.label || null, purpose, userId(req)],
       )
-      return r.rows[0]
+      const id = r.rows[0]!.id
+      // Stores the status and applies it (step, report link, activity).
+      await tx.query('select jenkins_followed_record($1, $2, null)', [id, JSON.stringify(status)])
+      if (purpose) await tx.query('select apply_automated_jobs($1)', [releaseId])
+      return (await tx.query(`select ${FOLLOWED_COLUMNS} from release_jenkins_builds where id = $1`, [id])).rows[0]
     })
     res.status(201).json(row)
   })
@@ -448,11 +459,16 @@ export function integrationRoutes(db: Db, config: Config) {
   router.delete('/jenkins/followed/:fid', async (req, res) => {
     const fid = idParam(req, 'fid')
     await asUser(db, req, async (tx) => {
-      const r = await tx.query('delete from release_jenkins_builds where id = $1', [fid])
+      const r = await tx.query<{ release_id: string; purpose: string | null }>(
+        'delete from release_jenkins_builds where id = $1 returning release_id, purpose',
+        [fid],
+      )
       if (!r.rowCount) {
         const visible = await tx.query('select 1 from release_jenkins_builds where id = $1', [fid])
         throw visible.rowCount ? forbidden() : notFound('Followed build not found.')
       }
+      // The step follows the runs that remain.
+      if (r.rows[0]!.purpose) await tx.query('select apply_automated_jobs($1)', [r.rows[0]!.release_id])
     })
     res.status(204).end()
   })

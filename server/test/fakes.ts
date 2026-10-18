@@ -210,6 +210,9 @@ export async function fakeJenkins() {
       [{ number: 7, result: 'SUCCESS', building: false, artifacts: [{ relativePath: 'reports/hit.html' }], triggered: [['platform/report-publisher', 2]] }],
     ],
     ['platform/report-publisher', [{ number: 2, result: 'SUCCESS', building: false }]],
+    // Test jobs run during the Automated jobs step.
+    ['perf/load-test', [{ number: 8, result: 'SUCCESS', building: false, artifacts: [{ relativePath: 'reports/load.html' }] }]],
+    ['perf/longevity', [{ number: 20, result: null, building: true }]],
     ['platform/deploy', []],
     // A running pipeline that started three jobs (one still waiting in the queue).
     [
@@ -257,10 +260,12 @@ export async function fakeJenkins() {
       result: b.result,
       building: b.building,
       url: `${origin}${jobPart}/${b.number}/`,
-      timestamp: 1_900_000_000_000,
+      // Running builds started 12 minutes ago; test jobs usually take 30 minutes.
+      timestamp: b.building ? Date.now() - 12 * 60_000 : 1_900_000_000_000,
       duration: b.building ? 0 : 61_000,
-      estimatedDuration: 120_000,
+      estimatedDuration: path.startsWith('perf/') ? 30 * 60_000 : 120_000,
       fullDisplayName: `${path.split('/').join(' » ')} #${b.number}`,
+      artifacts: b.artifacts ?? [],
       actions: [
         { _class: 'hudson.model.CauseAction' },
         b.downstream ? { downstreamBuilds: b.downstream.map(([jobFullName, buildNumber]) => ({ jobFullName, buildNumber })) } : {},

@@ -172,6 +172,7 @@ export default function ReleaseDetailPage() {
           onUpdate={(task, patch) => updateTask.mutate({ task, patch })}
           guard={guard}
           readOnly={readOnly}
+          release={{ id: release.id, projectId: release.project_id, reportTypes: release.reports.map((r) => r.report_type) }}
         />
       </Section>
 

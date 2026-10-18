@@ -192,6 +192,8 @@ export interface BuildNode {
   timestamp: number | null
   duration: number | null
   estimatedDuration: number | null
+  /** First HTML artifact (a test report), if any. */
+  reportUrl?: string | null
   /** Builds this one started (downstream), when Jenkins reports them. */
   children: BuildNode[]
   error?: string
@@ -208,7 +210,7 @@ interface RawBuildDetail extends RawBuild {
 }
 
 const DETAIL_TREE = [
-  'number,result,building,url,timestamp,duration,estimatedDuration,fullDisplayName',
+  'number,result,building,url,timestamp,duration,estimatedDuration,fullDisplayName,artifacts[relativePath]',
   // Pipeline "build" steps, the Parameterized Trigger plugin, the MultiJob plugin.
   'actions[downstreamBuilds[jobFullName,buildNumber],triggeredBuilds[number,url]]',
   'subBuilds[jobName,buildNumber,url]',
@@ -246,11 +248,14 @@ async function node(
   const url = buildUrl(c, jobPath, build)
   seen.add(`${jobPath}#${build}`)
   const raw = await outboundJson<RawBuildDetail>(`${url}api/json?tree=${encodeURIComponent(DETAIL_TREE)}`, SERVICE, { headers: headers(c), ca: c.ca })
+  const selfUrl = raw.url?.endsWith('/') ? raw.url : raw.url ? `${raw.url}/` : url
+  const html = raw.artifacts?.find((a) => /\.html?$/i.test(a.relativePath))
   const self: BuildNode = {
     jobPath,
     number: raw.number,
     name: raw.fullDisplayName ?? `${jobPath} #${raw.number}`,
-    url: raw.url?.endsWith('/') ? raw.url : raw.url ? `${raw.url}/` : url,
+    url: selfUrl,
+    reportUrl: html ? `${selfUrl}artifact/${html.relativePath.split('/').map(encodeURIComponent).join('/')}` : null,
     result: raw.result ?? null,
     building: raw.building === true,
     queued: false,

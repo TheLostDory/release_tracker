@@ -13,7 +13,8 @@ import { safeHttpUrl } from '@/lib/safe-url'
 import { TASK_STATUS_LABELS } from '@/lib/status-labels'
 import { cn } from '@/lib/utils'
 import { isDone, STEP_BY_TYPE, unmetDependencies, type WorkflowStep } from '@/lib/workflow'
-import type { TaskStatus, WorkflowTaskType } from '@/types/domain'
+import { AutomatedJobsPanel } from '@/features/integrations/automated-jobs-panel'
+import type { ReportType, TaskStatus, WorkflowTaskType } from '@/types/domain'
 import type { ReleaseTask, TaskPatch } from '../api'
 import { managedCardId } from './card-ids'
 
@@ -37,13 +38,18 @@ interface Props {
   guard: (stepName: string, unmet: WorkflowStep[], proceed: () => void) => void
   /** Viewers see everything but can't change it. */
   readOnly?: boolean
+  /** For the Automated jobs step's Jenkins runs. */
+  release?: { id: string; projectId: string; reportTypes: readonly ReportType[] }
 }
 
-export function TaskList({ tasks, current, onUpdate, guard, readOnly = false }: Props) {
+export function TaskList({ tasks, current, onUpdate, guard, readOnly = false, release }: Props) {
   const { currentProject } = useCurrentProject()
   const { data: members = [] } = useProjectMembers(currentProject?.id)
   const profiles = members.flatMap((m) => (m.profile ? [m.profile] : []))
-  const [expanded, setExpanded] = useState<string | null>(null)
+  // While the release is at the Automated jobs step, its jobs are shown right away.
+  const [expanded, setExpanded] = useState<string | null>(() =>
+    current === 'AUTOMATED_JOBS' && release ? (tasks.find((t) => t.task_type === 'AUTOMATED_JOBS')?.id ?? null) : null,
+  )
 
   function changeStatus(task: ReleaseTask, status: TaskStatus) {
     const apply = () => {
@@ -188,6 +194,11 @@ export function TaskList({ tasks, current, onUpdate, guard, readOnly = false }: 
                   <TableRow className="hover:bg-transparent">
                     <TableCell />
                     <TableCell colSpan={5} className="pb-4">
+                      {task.task_type === 'AUTOMATED_JOBS' && release && (
+                        <div className="mb-3 whitespace-normal">
+                          <AutomatedJobsPanel releaseId={release.id} projectId={release.projectId} reportTypes={release.reportTypes} canEdit={!readOnly} />
+                        </div>
+                      )}
                       <TaskDetails task={task} onUpdate={onUpdate} readOnly={readOnly} />
                     </TableCell>
                   </TableRow>

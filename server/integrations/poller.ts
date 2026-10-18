@@ -1,7 +1,7 @@
 import type { Config } from '../config.js'
 import { decrypt } from '../crypto.js'
 import type { Db } from '../db/pool.js'
-import { jenkinsBuilds } from './jenkins.js'
+import { jenkinsBuilds, jenkinsBuildTree } from './jenkins.js'
 import { OutboundError } from './outbound.js'
 
 interface SyncJob {
@@ -52,6 +52,37 @@ export async function syncJenkins(db: Db, config: Config, releaseId?: string): P
   return { synced, failed }
 }
 
+interface SyncFollowed {
+  id: string
+  job_path: string
+  build_number: number
+  base_url: string
+  username: string | null
+  secret_encrypted: string
+  ca_cert: string | null
+}
+
+/** Refreshes runs added by link that may still change (running or queued), so the step updates unattended. */
+export async function syncFollowedBuilds(db: Db, config: Config): Promise<number> {
+  if (!config.ENCRYPTION_KEY) return 0
+  const { rows } = await db.query<SyncFollowed>('select * from jenkins_followed_to_sync()')
+  const queue = [...rows]
+  async function worker() {
+    for (let run = queue.shift(); run; run = queue.shift()) {
+      try {
+        const conn = { baseUrl: run.base_url, username: run.username, secret: decrypt(run.secret_encrypted, config.ENCRYPTION_KEY!), ca: run.ca_cert }
+        const status = await jenkinsBuildTree(conn, { jobPath: run.job_path, build: run.build_number })
+        await db.query('select jenkins_followed_record($1, $2, null)', [run.id, JSON.stringify(status)])
+      } catch (err) {
+        const message = err instanceof OutboundError ? err.message : 'Sync failed.'
+        await db.query('select jenkins_followed_record($1, null, $2)', [run.id, message]).catch(() => {})
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, rows.length) }, worker))
+  return rows.length
+}
+
 /** Background polling for releases that aren't deployed yet. */
 export function startJenkinsPoller(db: Db, config: Config, intervalMs = 120_000): () => void {
   let running = false
@@ -60,6 +91,7 @@ export function startJenkinsPoller(db: Db, config: Config, intervalMs = 120_000)
     running = true
     try {
       await syncJenkins(db, config)
+      await syncFollowedBuilds(db, config)
     } catch (err) {
       console.error('[jenkins] poll failed:', (err as Error).message)
     } finally {

@@ -125,6 +125,8 @@ export interface BuildNode {
   timestamp: number | null
   duration: number | null
   estimatedDuration: number | null
+  /** First HTML artifact (test report), when Jenkins has one. */
+  reportUrl?: string | null
   children: BuildNode[]
   error?: string
 }
@@ -135,14 +137,19 @@ export interface FollowedBuild {
   job_path: string
   build_number: number
   label: string | null
+  /** Set when added to the Automated jobs step. */
+  purpose: RunPurpose | null
   status: BuildNode | null
   last_synced_at: string | null
   last_error: string | null
   created_at: string
 }
 
+/** What a run added to the Automated jobs step is for. */
+export type RunPurpose = 'AUTOMATED' | 'LOAD_TEST' | 'LONGEVITY' | 'HIT'
+
 export const listFollowedBuilds = (releaseId: string) => api.get<FollowedBuild[]>(`/releases/${releaseId}/jenkins/followed`)
-export const followBuild = (releaseId: string, input: { url: string; label?: string | null }) =>
+export const followBuild = (releaseId: string, input: { url: string; label?: string | null; purpose?: RunPurpose | null }) =>
   api.post<FollowedBuild>(`/releases/${releaseId}/jenkins/followed`, input)
 export const refreshFollowedBuild = (id: string) => api.post<FollowedBuild>(`/jenkins/followed/${id}/refresh`)
 export const unfollowBuild = (id: string) => api.del(`/jenkins/followed/${id}`)

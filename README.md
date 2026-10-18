@@ -167,6 +167,25 @@ Connect per project in **Settings → Project → Integrations** (admins and own
 
 Each job shows its latest build and history and has a **Run** button (members+). The server checks linked jobs of undeployed releases **every 2 minutes**, plus *Sync now*. Changes appear in the activity log as *Jenkins*.
 
+**Automated jobs step** (release page → Workflow steps → *Automated jobs*).
+There's one slot each for **Load Test**, **Longevity** and **HIT** (the report
+types the project uses), plus *Add another job*. Paste the link of each
+running Jenkins job. Each one shows:
+- its status, progress, and roughly how much time is left (Jenkins' own
+  estimate, or how far past it the job is running);
+- the builds it started.
+
+The runs drive the step:
+- every run passed → completed;
+- any failure → blocked, with the reason;
+- anything running → in progress.
+
+A passing Load Test, Longevity or HIT run also fills that report's link (its
+HTML report, if it has one). Pasting a new run into a slot replaces the old
+one, e.g. after a re-run. The server re-checks running jobs every 2 minutes,
+so the step updates even when nobody has the page open. Finished runs appear
+in the activity log.
+
 **Followed builds** (release page → Jenkins → *Follow a build*). Paste the
 link of a specific run: a classic or Blue Ocean build link, or a job link,
 which follows that job's latest run. The page shows the run's status, plus

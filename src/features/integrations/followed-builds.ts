@@ -47,3 +47,24 @@ export function formatDuration(ms: number) {
   const s = Math.round(ms / 1000)
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 }
+
+/**
+ * Time left for a running build from Jenkins' estimate: "~12 min left", or
+ * "running 4 min longer than usual" once past it. Null when not running or
+ * no estimate.
+ */
+export function timeLeftText(node: BuildNode, now: number): string | null {
+  if (!node.building || node.timestamp == null || !node.estimatedDuration) return null
+  const left = node.estimatedDuration - (now - node.timestamp)
+  if (left >= 0) return `~${formatMinutes(left)} left`
+  return `running ${formatMinutes(-left)} longer than usual`
+}
+
+/** 45 s → "1 min", 3 900 000 → "1 h 5 min". */
+export function formatMinutes(ms: number): string {
+  const min = Math.max(1, Math.round(ms / 60_000))
+  if (min < 60) return `${min} min`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m ? `${h} h ${m} min` : `${h} h`
+}
