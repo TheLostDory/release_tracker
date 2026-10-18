@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareWithJira, findIssueKeys, toChanges } from './code-compare.js'
+import { compareWithJira, findBranchKeys, findIssueKeys, toChanges } from './code-compare.js'
 import type { GitCommit, PullRequest } from './github.js'
 import type { JiraIssue } from './jira.js'
 
@@ -20,6 +20,17 @@ const issue = (key: string): JiraIssue => ({
   priority: null,
   assignee: null,
   url: `https://jira/browse/${key}`,
+})
+
+describe('findBranchKeys', () => {
+  it('takes a key at the start of any part of the branch name, in any case', () => {
+    expect(findBranchKeys('jdoe/fieldbug-812')).toEqual(['FIELDBUG-812'])
+    expect(findBranchKeys('jdoe/ABC-12-login-page')).toEqual(['ABC-12'])
+    expect(findBranchKeys('ABC-5')).toEqual(['ABC-5'])
+    expect(findBranchKeys('jdoe/release-2')).toEqual([])
+    expect(findBranchKeys('jdoe/fix-login')).toEqual([])
+    expect(findBranchKeys('jdoe/utf-8-names')).toEqual([])
+  })
 })
 
 describe('findIssueKeys', () => {
@@ -77,5 +88,25 @@ describe('toChanges + compareWithJira', () => {
     expect(result.noKey.map((c) => c.ref)).toEqual(['#14'])
     expect(result.otherCommits.map((c) => c.title)).toEqual(['Fix typo'])
     expect(result.syncMerges.map((c) => c.title)).toEqual(["Merge branch 'main' into release/1.4"])
+  })
+
+  it("reads the team's format: Merge pull request #N from <name>/<jira id>", () => {
+    const own = toChanges(
+      'acme/app',
+      [
+        commit('h1', 'Merge pull request #45 from jdoe/ABC-77\n\nAdd export', 2),
+        commit('h2', 'Merge pull request #46 from jdoe/fieldbug-812\n\nCrash on start', 2), // other Jira project, lower case
+        commit('h3', 'Merge pull request #47 from mmaya/abc-78-story-title\n\nNew screen', 2),
+        commit('h4', 'Merge pull request #48 from jdoe/release-2\n\nBack-merge', 2),
+      ],
+      new Map(), // pull request details unavailable: the commit alone is enough
+      'ABC',
+    )
+    expect(own.map((c) => [c.ref, c.branch, c.title, c.keys])).toEqual([
+      ['#45', 'ABC-77', 'Add export', ['ABC-77']],
+      ['#46', 'fieldbug-812', 'Crash on start', ['FIELDBUG-812']],
+      ['#47', 'abc-78-story-title', 'New screen', ['ABC-78']],
+      ['#48', 'release-2', 'Back-merge', []],
+    ])
   })
 })

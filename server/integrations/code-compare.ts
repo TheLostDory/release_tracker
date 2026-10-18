@@ -38,6 +38,25 @@ export interface ComparisonResult {
 
 // Upper-case words that look like issue keys but aren't.
 const NOT_KEYS = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'CVE', 'HTTP', 'HTTPS', 'TLS', 'SSL', 'AES', 'RSA', 'X', 'PR', 'MR', 'V', 'GPT', 'ES', 'IPV'])
+// Branch-name words followed by a number that aren't issue keys (release-2, hotfix-3…).
+const BRANCH_WORDS = new Set(['RELEASE', 'RELEASES', 'HOTFIX', 'BUGFIX', 'FIX', 'FEATURE', 'FEAT', 'RC', 'BUILD', 'VERSION', 'MAIN', 'MASTER', 'DEVELOP', 'DEV', 'TEST', 'TMP', 'WIP', 'REVERT', 'PATCH', 'SPRINT', 'PHASE', 'STEP', 'PART'])
+
+/**
+ * Issue keys in a branch name. The convention is "<name>/<jira id>…"
+ * (jdoe/ABC-123, jdoe/fieldbug-812-crash), so a key at the start of any part
+ * counts in any case and from any Jira project.
+ */
+export function findBranchKeys(branch: string): string[] {
+  const keys = new Set<string>()
+  for (const part of branch.split('/')) {
+    const m = /^([A-Za-z][A-Za-z0-9]{1,19})-(\d{1,9})(?![0-9])/.exec(part)
+    if (!m) continue
+    const prefix = m[1]!.toUpperCase()
+    if (NOT_KEYS.has(prefix) || BRANCH_WORDS.has(prefix)) continue
+    keys.add(`${prefix}-${Number(m[2])}`)
+  }
+  return [...keys]
+}
 
 /**
  * Issue keys in text. The project's own key matches in any case (branch names
@@ -82,7 +101,9 @@ export function toChanges(repo: string, commits: GitCommit[], pulls: Map<number,
       if (seenPrs.has(prNumber)) continue
       seenPrs.add(prNumber)
       const pr = pulls.get(prNumber)
-      const branch = pr?.branch ?? (merged ? merged[2]!.split('/').slice(1).join('/') || merged[2]! : null)
+      // "from <name>/<branch>": the part after the user/organisation name.
+      const fromBranch = merged ? merged[2]!.split('/').slice(1).join('/') || merged[2]! : null
+      const branch = pr?.branch ?? fromBranch
       const title = pr?.title ?? (merged ? (restLines(c.message)[0] ?? line) : line.replace(/\s*\(#\d+\)\s*$/, ''))
       changes.push({
         repo,
@@ -93,7 +114,13 @@ export function toChanges(repo: string, commits: GitCommit[], pulls: Map<number,
         author: pr?.author ?? c.author,
         date: pr?.mergedAt ?? c.date,
         url: pr?.url ?? c.url,
-        keys: findIssueKeys([title, branch ?? '', c.message].join('\n'), projectKey),
+        keys: [
+          ...new Set([
+            ...findIssueKeys([title, c.message].join('\n'), projectKey),
+            ...findBranchKeys(branch ?? ''),
+            ...findBranchKeys(fromBranch ?? ''),
+          ]),
+        ],
       })
       continue
     }
@@ -110,7 +137,7 @@ export function toChanges(repo: string, commits: GitCommit[], pulls: Map<number,
         author: c.author,
         date: c.date,
         url: c.url,
-        keys: findIssueKeys(c.message, projectKey),
+        keys: [...new Set([...findIssueKeys(c.message, projectKey), ...(branch ? findBranchKeys(branch) : [])])],
       })
       continue
     }

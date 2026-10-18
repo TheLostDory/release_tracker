@@ -207,7 +207,9 @@ what it is compared with. The previous release's RC is suggested. The page
 reads every commit in the RC that isn't in the previous one, and the pull
 requests they came from. It then picks out Jira keys from:
 - pull request titles;
-- branch names (`feature/abc-123-…`; the project's key matches in any case);
+- branch names: the `<name>/<jira id>` convention, as in
+  `Merge pull request #45 from jdoe/ABC-77`; a key at the start of any part
+  of the branch name matches in any case, from any Jira project;
 - commit messages.
 
 It shows four lists:
