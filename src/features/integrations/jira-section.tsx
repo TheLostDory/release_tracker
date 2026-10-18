@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { ExternalLink, RefreshCw, Unlink } from 'lucide-react'
+import { ExternalLink, GitCompareArrows, RefreshCw, Unlink } from 'lucide-react'
+import { Link } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { QueryError } from '@/components/query-error'
@@ -11,24 +12,28 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import type { ReleaseDetail } from '@/features/releases/api'
 import { toUserMessage } from '@/lib/errors'
 import { cn } from '@/lib/utils'
-import { getJiraIssues, type JiraIssue } from './api'
+import { getJiraIssues } from './api'
+import { CATEGORY } from './jira-status'
 import { integrationKeys, useConnected, useJiraIssues, useJiraVersions, useLinkJiraVersion } from './queries'
 
-const CATEGORY: Record<JiraIssue['statusCategory'], { label: string; className: string }> = {
-  new: { label: 'To do', className: 'bg-muted text-muted-foreground' },
-  indeterminate: { label: 'In progress', className: 'bg-blue-500/10 text-blue-700 dark:text-blue-400' },
-  done: { label: 'Done', className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' },
-  unknown: { label: 'Other', className: 'bg-muted text-muted-foreground' },
-}
-
 export function JiraSection({ release, canEdit }: { release: ReleaseDetail; canEdit: boolean }) {
-  const { jira } = useConnected(release.project_id)
+  const { jira, github } = useConnected(release.project_id)
   if (!jira) return null
   return (
     <section aria-labelledby="jira-heading" className="space-y-2">
-      <h2 id="jira-heading" className="text-sm font-medium text-muted-foreground">
-        Jira
-      </h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 id="jira-heading" className="text-sm font-medium text-muted-foreground">
+          Jira
+        </h2>
+        {github && (
+          <Button asChild size="sm" variant="outline">
+            <Link to={`/releases/${release.id}/compare`}>
+              <GitCompareArrows />
+              Compare with code
+            </Link>
+          </Button>
+        )}
+      </div>
       {release.jira_version_id ? (
         <LinkedVersion release={release} canEdit={canEdit} />
       ) : (

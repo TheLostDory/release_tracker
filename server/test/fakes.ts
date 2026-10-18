@@ -85,6 +85,12 @@ export async function fakeJira({ https = false } = {}) {
   app.get('/rest/api/2/issue/:key', (req, res) => {
     if (req.params.key === 'ABC-42') return void res.json(login)
     const n = Number(/^ABC-(\d+)$/.exec(req.params.key)?.[1])
+    if (n > 150 && n <= 160) {
+      return void res.json({
+        key: req.params.key,
+        fields: { summary: `Later work ${n}`, issuetype: { name: 'Story' }, status: { name: 'In Progress', statusCategory: { key: 'indeterminate' } }, fixVersions: [versionRef('10002')] },
+      })
+    }
     if (!n || n > 150) return void res.status(404).json({ errorMessages: ['Issue does not exist'] })
     const issue = issues('10001')[n - 1]!
     res.json({ ...issue, fields: { ...issue.fields, fixVersions: [versionRef('10001')] } })
@@ -294,4 +300,67 @@ export async function fakeJenkins() {
       b.result = result
     },
   }
+}
+
+export const GITHUB = { token: 'ghp_fake_token' }
+
+/**
+ * Fake GitHub API: repo acme/app whose release/1.4.0 branch, compared with
+ * release/1.3.0, contains merged pull requests (merge and squash), a merge of
+ * main, a branch merge for an issue planned in another version, and filler
+ * commits (so the comparison spans two pages).
+ */
+export async function fakeGitHub() {
+  const app = express()
+  const calls: string[] = []
+  app.use((req, res, next) => {
+    calls.push(req.originalUrl)
+    // Serve the Enterprise API path (/api/v3/…) like GitHub Enterprise Server.
+    if (req.url.startsWith('/api/v3/')) req.url = req.url.slice('/api/v3'.length)
+    if (req.get('authorization') !== `Bearer ${GITHUB.token}`) return void res.status(401).json({ message: 'Bad credentials' })
+    next()
+  })
+  const commit = (sha: string, message: string, parents = 1, login = 'maya') => ({
+    sha: sha.padEnd(40, '0'),
+    html_url: `https://github.example/acme/app/commit/${sha}`,
+    parents: Array.from({ length: parents }, () => ({})),
+    author: { login },
+    commit: { message, author: { name: login, date: '2030-02-01T10:00:00Z' } },
+  })
+  const releaseCommits = [
+    commit('a1', 'Fix review comments'),
+    commit('a2', 'Merge pull request #12 from acme/feature/abc-1-sso\n\nLogin with SSO', 2),
+    commit('b1', 'ABC-2 Faster search (#13)'),
+    commit('c1', 'Bump dependencies (#14)', 1, 'dependabot'),
+    commit('d1', "Merge branch 'main' into release/1.4.0", 2),
+    commit('e1', "Merge branch 'feature/ABC-155-export' into release/1.4.0", 2),
+    commit('f1', 'ABC-999 cleanup'),
+    ...Array.from({ length: 105 }, (_, i) => commit(`f${String(i).padStart(3, '0')}`, `Refactor step ${i}`)),
+  ]
+  const pulls: Record<number, object> = {
+    12: { number: 12, title: 'Login with SSO', html_url: 'https://github.example/acme/app/pull/12', merged_at: '2030-02-01T10:00:00Z', head: { ref: 'feature/abc-1-sso' }, user: { login: 'maya' } },
+    13: { number: 13, title: 'ABC-2 Faster search', html_url: 'https://github.example/acme/app/pull/13', merged_at: '2030-02-02T10:00:00Z', head: { ref: 'search' }, user: { login: 'omar' } },
+    14: { number: 14, title: 'Bump dependencies', html_url: 'https://github.example/acme/app/pull/14', merged_at: '2030-02-03T10:00:00Z', head: { ref: 'dependabot/npm' }, user: { login: 'dependabot' } },
+  }
+  app.get('/user', (_req, res) => void res.json({ login: 'release-bot' }))
+  app.get('/repos/:owner/:repo', (req, res) =>
+    `${req.params.owner}/${req.params.repo}` === 'acme/app' ? void res.json({ full_name: 'acme/app', default_branch: 'main' }) : void res.status(404).json({ message: 'Not Found' }),
+  )
+  app.get('/repos/:owner/:repo/pulls/:n', (req, res) => {
+    const p = pulls[Number(req.params.n)]
+    return p ? void res.json(p) : void res.status(404).json({ message: 'Not Found' })
+  })
+  // base...head; refs may contain slashes.
+  app.get(/^\/repos\/acme\/app\/compare\/(.+)$/, (req, res) => {
+    const [base, head] = decodeURIComponent(req.path.replace('/repos/acme/app/compare/', '')).split('...')
+    if (base !== 'release/1.3.0' || head !== 'release/1.4.0') return void res.status(404).json({ message: 'Not Found' })
+    const per = Number(req.query.per_page ?? 250)
+    const page = Number(req.query.page ?? 1)
+    res.json({
+      total_commits: releaseCommits.length,
+      html_url: `https://github.example/acme/app/compare/${base}...${head}`,
+      commits: releaseCommits.slice((page - 1) * per, page * per),
+    })
+  })
+  return { ...(await listen(app)), calls }
 }

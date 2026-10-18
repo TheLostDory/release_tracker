@@ -121,6 +121,7 @@ src/
 | `GET /projects/:id/jira/versions`, `POST /projects/:id/jira/import`, `PUT /releases/:id/jira`, `GET /releases/:id/jira/issues` | Jira |
 | `GET/POST /releases/:id/jenkins`, `POST /releases/:id/jenkins/sync`, `DELETE /jenkins/jobs/:id`, `GET …/builds`, `POST …/run` | Jenkins |
 | `GET/POST /releases/:id/jenkins/followed`, `POST /jenkins/followed/:id/refresh`, `DELETE /jenkins/followed/:id` | Followed Jenkins builds |
+| `GET/PUT /releases/:id/code-refs`, `GET /releases/:id/code-compare` | RC (GitHub) vs Jira version |
 
 ## Projects, roles and invitations
 
@@ -188,6 +189,39 @@ builds are display only and don't change the workflow.
   ```
 
 **Network:** the app container calls Jira/Jenkins directly, so your machine must be able to reach them (e.g. be on the company VPN). Redirects aren't followed (credentials are never re-sent to another host), so use the final URL.
+
+## Code vs Jira (GitHub)
+
+Answers the question "is what we merged into the RC what Jira says is in the
+release?".
+
+**Connect:** Settings → Project → Integrations → GitHub. Enter:
+- `https://github.com`, or your GitHub Enterprise address;
+- a token with read access to contents and pull requests;
+- the repositories;
+- the RC branch pattern (default `release/{{version}}`).
+
+**Compare:** on a release linked to a Jira version, open Jira → **Compare with
+code**. For each repository, pick the release candidate branch or tag, and
+what it is compared with. The previous release's RC is suggested. The page
+reads every commit in the RC that isn't in the previous one, and the pull
+requests they came from. It then picks out Jira keys from:
+- pull request titles;
+- branch names (`feature/abc-123-…`; the project's key matches in any case);
+- commit messages.
+
+It shows four lists:
+
+| List | Meaning |
+|---|---|
+| In Jira, not merged | in the Jira version, but nothing merged mentions it (issues marked Done first) |
+| Merged, not in this version | merged changes mention it, but its fix version is another one (or none, or it doesn't exist) |
+| Merged without an issue | pull requests and branch merges that mention no issue |
+| In both | matched, with the pull requests |
+
+Merges of `main` or other release branches are set apart. So are the
+individual commits inside pull requests. Results are cached for 2 minutes;
+*Refresh* reads GitHub and Jira again.
 
 ## AI assistant ("Ask")
 

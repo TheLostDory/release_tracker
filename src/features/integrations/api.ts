@@ -1,7 +1,7 @@
 import { api, qs } from '@/lib/api'
 
-export type IntegrationKind = 'JIRA' | 'JENKINS'
-export type IntegrationAuth = 'JIRA_CLOUD' | 'JIRA_SERVER' | 'JENKINS'
+export type IntegrationKind = 'JIRA' | 'JENKINS' | 'GITHUB'
+export type IntegrationAuth = 'JIRA_CLOUD' | 'JIRA_SERVER' | 'JENKINS' | 'GITHUB'
 
 /** A project's connection. Credentials never come back from the server. */
 export interface Integration {
@@ -10,7 +10,7 @@ export interface Integration {
   auth_type: IntegrationAuth
   base_url: string
   username: string | null
-  settings: { projectKey?: string }
+  settings: { projectKey?: string; repos?: string[]; headTemplate?: string }
   last_error: string | null
   last_checked_at: string | null
   /** Company CA certificate(s) trusted for this connection (public, PEM). */
@@ -24,6 +24,9 @@ export interface SaveIntegrationInput {
   /** Omit to keep the stored token. */
   secret?: string
   projectKey?: string
+  /** GitHub: repositories (owner/name) and the RC branch pattern. */
+  repos?: string[]
+  headTemplate?: string
   /** Omit to keep; "" removes. */
   caCert?: string
 }
@@ -151,3 +154,63 @@ export const unlinkJenkinsJob = (jobId: string) => api.del(`/jenkins/jobs/${jobI
 export const runJenkinsJob = (jobId: string) => api.post(`/jenkins/jobs/${jobId}/run`)
 export const syncJenkins = (releaseId: string) => api.post<{ synced: number; failed: number }>(`/releases/${releaseId}/jenkins/sync`)
 export const listJenkinsBuilds = (jobId: string) => api.get<JenkinsBuild[]>(`/jenkins/jobs/${jobId}/builds`)
+
+// --- RC vs Jira comparison ---------------------------------------------------------------
+
+export interface CodeRef {
+  repo: string
+  base_ref: string
+  head_ref: string
+}
+
+export type CodeRefs =
+  | { connected: false }
+  | {
+      connected: true
+      repos: string[]
+      webUrl: string
+      refs: CodeRef[]
+      suggestions: { repo: string; baseRef: string; headRef: string }[]
+      previousRelease: { id: string; name: string; version: string } | null
+    }
+
+export interface CodeChange {
+  repo: string
+  kind: 'pr' | 'merge' | 'commit'
+  ref: string
+  title: string
+  branch: string | null
+  author: string | null
+  date: string | null
+  url: string
+  keys: string[]
+}
+
+export interface IssueElsewhere {
+  key: string
+  summary: string
+  status: string
+  url: string
+  fixVersions: { id: string; name: string; released: boolean; releaseDate: string | null }[]
+}
+
+export interface CodeComparison {
+  release: { id: string; name: string; version: string }
+  jira: { versionName: string; url: string; truncated: boolean } | null
+  repos: { repo: string; baseRef: string; headRef: string; totalCommits: number; truncated: boolean; compareUrl: string; error: string | null }[]
+  matched: { issue: JiraIssue; changes: CodeChange[] }[]
+  jiraOnly: JiraIssue[]
+  /** jira: the issue as Jira has it, null if it doesn't exist, "unknown" if it wasn't looked up. */
+  codeOnly: { key: string; changes: CodeChange[]; jira: IssueElsewhere | null | 'unknown' }[]
+  noKey: CodeChange[]
+  otherCommits: CodeChange[]
+  syncMerges: CodeChange[]
+  notes: string[]
+  comparedAt: string
+}
+
+export const getCodeRefs = (releaseId: string) => api.get<CodeRefs>(`/releases/${releaseId}/code-refs`)
+export const saveCodeRefs = (releaseId: string, refs: { repo: string; baseRef: string; headRef: string }[]) =>
+  api.put(`/releases/${releaseId}/code-refs`, { refs })
+export const getCodeComparison = (releaseId: string, refresh = false) =>
+  api.get<CodeComparison>(`/releases/${releaseId}/code-compare${refresh ? '?refresh=true' : ''}`)

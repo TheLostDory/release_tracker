@@ -18,10 +18,12 @@ import {
 } from '../integrations/jenkins.js'
 import { isJiraProjectKey, jiraProjectName, jiraVersionIssues, jiraVersions, jiraWhoAmI, type JiraVersion } from '../integrations/jira.js'
 import { cached, uncache } from '../integrations/cache.js'
+import { githubRepo, githubWhoAmI, isRepoName, normalizeGitHubApiUrl } from '../integrations/github.js'
 import { inspectCertificates } from '../integrations/certificate.js'
 import { asHttpError, normalizeBaseUrl, normalizeCaCert, OutboundError } from '../integrations/outbound.js'
 import { syncJenkins } from '../integrations/poller.js'
 import {
+  githubConnection,
   jenkinsConnection,
   jiraConnection,
   loadIntegration,
@@ -31,15 +33,18 @@ import {
   type IntegrationRow,
 } from '../integrations/store.js'
 
-const kindParam = z.enum(['jira', 'jenkins']).transform((k) => k.toUpperCase() as IntegrationKind)
+const kindParam = z.enum(['jira', 'jenkins', 'github']).transform((k) => k.toUpperCase() as IntegrationKind)
 
 const saveBody = z.strictObject({
-  authType: z.enum(['JIRA_CLOUD', 'JIRA_SERVER', 'JENKINS']),
+  authType: z.enum(['JIRA_CLOUD', 'JIRA_SERVER', 'JENKINS', 'GITHUB']),
   baseUrl: z.string().max(500),
   username: z.string().trim().max(200).nullable().optional(),
   /** Omit to keep the stored secret. */
   secret: z.string().min(1).max(2000).optional(),
   projectKey: z.string().trim().toUpperCase().optional(),
+  /** GitHub: repositories ("owner/name") and the RC branch/tag pattern ({{version}}, {{name}}). */
+  repos: z.array(z.string().trim()).max(10).optional(),
+  headTemplate: z.string().trim().max(250).optional(),
   /** Company CA certificate(s), PEM. Omit to keep; null or "" to remove. */
   caCert: z.string().max(65536).nullable().optional(),
 })
@@ -88,8 +93,15 @@ export function integrationRoutes(db: Db, config: Config) {
     const kind = kindParam.parse(req.params.kind)
     const body = saveBody.parse(req.body)
     const key = requireKey(config)
-    const baseUrl = normalizeBaseUrl(body.baseUrl)
-    if ((kind === 'JIRA') !== (body.authType !== 'JENKINS')) throw new HttpError(422, 'Auth type does not match the integration.', 'invalid')
+    const baseUrl = kind === 'GITHUB' ? normalizeGitHubApiUrl(body.baseUrl) : normalizeBaseUrl(body.baseUrl)
+    const authKind = body.authType === 'JENKINS' ? 'JENKINS' : body.authType === 'GITHUB' ? 'GITHUB' : 'JIRA'
+    if (authKind !== kind) throw new HttpError(422, 'Auth type does not match the integration.', 'invalid')
+    const repos = [...new Set(body.repos ?? [])]
+    if (kind === 'GITHUB') {
+      if (repos.length === 0) throw new HttpError(422, 'Add at least one repository (owner/name).', 'invalid')
+      const bad = repos.find((r) => !isRepoName(r))
+      if (bad) throw new HttpError(422, `"${bad}" is not a repository name like owner/name.`, 'invalid')
+    }
     if (kind === 'JIRA' && (!body.projectKey || !isJiraProjectKey(body.projectKey))) {
       throw new HttpError(422, 'Enter the Jira project key, e.g. ABC.', 'invalid')
     }
@@ -110,7 +122,7 @@ export function integrationRoutes(db: Db, config: Config) {
         try {
           secret = (await loadIntegration(tx, config, projectId, kind)).secret
         } catch {
-          throw new HttpError(422, 'Enter the API token.', 'invalid')
+          throw new HttpError(422, kind === 'GITHUB' ? 'Enter the access token.' : 'Enter the API token.', 'invalid')
         }
       }
       const username = body.username || null
@@ -121,6 +133,12 @@ export function integrationRoutes(db: Db, config: Config) {
           const who = await jiraWhoAmI(conn)
           const projectName = await jiraProjectName(conn, body.projectKey!)
           summary = `Connected as ${who} · project ${projectName} (${body.projectKey})`
+        } else if (kind === 'GITHUB') {
+          const conn = { apiUrl: baseUrl, secret, ca }
+          const who = await githubWhoAmI(conn)
+          // Every repository must be readable with this token.
+          for (const repo of repos) await githubRepo(conn, repo)
+          summary = `Connected as ${who} · ${repos.length} repositor${repos.length === 1 ? 'y' : 'ies'}`
         } else {
           const what = await jenkinsWhoAmI({ baseUrl, username, secret, ca })
           summary = `Connected to ${what} as ${username}`
@@ -128,7 +146,12 @@ export function integrationRoutes(db: Db, config: Config) {
       } catch (err) {
         asHttpError(err)
       }
-      const settings = kind === 'JIRA' ? { projectKey: body.projectKey } : {}
+      const settings =
+        kind === 'JIRA'
+          ? { projectKey: body.projectKey }
+          : kind === 'GITHUB'
+            ? { repos, headTemplate: body.headTemplate || 'release/{{version}}' }
+            : {}
       const encrypted = encrypt(secret, key)
       // Update-or-insert without ON CONFLICT: its "excluded.secret_encrypted"
       // counts as reading the secret column, which the app login can't do.
@@ -167,7 +190,9 @@ export function integrationRoutes(db: Db, config: Config) {
         const text =
           kind === 'JIRA'
             ? `Connected as ${await jiraWhoAmI(jiraConnection(row, secret))}`
-            : `Connected to ${await jenkinsWhoAmI(jenkinsConnection(row, secret))}`
+            : kind === 'GITHUB'
+              ? `Connected as ${await githubWhoAmI(githubConnection(row, secret))}`
+              : `Connected to ${await jenkinsWhoAmI(jenkinsConnection(row, secret))}`
         await tx.query('update integrations set last_error = null, last_checked_at = now() where id = $1', [row.id]).catch(() => {})
         return text
       } catch (err) {

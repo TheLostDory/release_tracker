@@ -2,23 +2,26 @@ import type { Config } from '../config.js'
 import { decrypt } from '../crypto.js'
 import type { Tx } from '../db/pool.js'
 import { HttpError } from '../http/errors.js'
+import type { GitHubConnection } from './github.js'
 import type { JenkinsConnection } from './jenkins.js'
 import type { JiraAuth, JiraConnection } from './jira.js'
 
-export type IntegrationKind = 'JIRA' | 'JENKINS'
+export type IntegrationKind = 'JIRA' | 'JENKINS' | 'GITHUB'
 
 export interface IntegrationRow {
   id: string
   project_id: string
   kind: IntegrationKind
-  auth_type: JiraAuth | 'JENKINS'
+  auth_type: JiraAuth | 'JENKINS' | 'GITHUB'
   base_url: string
   username: string | null
-  settings: { projectKey?: string }
+  settings: { projectKey?: string; repos?: string[]; headTemplate?: string }
   last_error: string | null
   last_checked_at: string | null
   ca_cert: string | null
 }
+
+const KIND_LABELS: Record<IntegrationKind, string> = { JIRA: 'Jira', JENKINS: 'Jenkins', GITHUB: 'GitHub' }
 
 export const PUBLIC_COLUMNS = 'id, project_id, kind, auth_type, base_url, username, settings, last_error, last_checked_at, ca_cert'
 
@@ -36,7 +39,7 @@ export async function loadIntegration(tx: Tx, config: Config, projectId: string,
     kind,
   ])
   const row = rows[0]
-  if (!row) throw new HttpError(409, `${kind === 'JIRA' ? 'Jira' : 'Jenkins'} isn't connected for this project.`, 'not_connected')
+  if (!row) throw new HttpError(409, `${KIND_LABELS[kind]} isn't connected for this project.`, 'not_connected')
   const secretRow = await tx.query<{ s: string }>('select integration_secret($1) as s', [row.id])
   let secret: string
   try {
@@ -61,6 +64,12 @@ export const jenkinsConnection = (
 ): JenkinsConnection => ({
   baseUrl: row.base_url,
   username: row.username,
+  secret,
+  ca: row.ca_cert,
+})
+
+export const githubConnection = (row: { base_url: string; ca_cert: string | null }, secret: string): GitHubConnection => ({
+  apiUrl: row.base_url,
   secret,
   ca: row.ca_cert,
 })

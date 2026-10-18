@@ -29,6 +29,7 @@ export const router = createBrowserRouter([
               { path: 'sprints/:sprintId', lazy: page(() => import('@/pages/sprint-detail-page')) },
               { path: 'releases', lazy: page(() => import('@/pages/releases-page')) },
               { path: 'releases/:releaseId', lazy: page(() => import('@/pages/release-detail-page')) },
+              { path: 'releases/:releaseId/compare', lazy: page(() => import('@/pages/release-compare-page')) },
               { path: 'calendar', lazy: page(() => import('@/pages/calendar-page')) },
               {
                 path: 'settings',

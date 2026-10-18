@@ -9,6 +9,7 @@ import { csrfGuard, securityHeaders } from './http/security.js'
 import type { ReleaseEvents } from './realtime.js'
 import { authRoutes } from './routes/auth.js'
 import { chatRoutes } from './routes/chat.js'
+import { codeCompareRoutes } from './routes/code-compare.js'
 import { integrationRoutes } from './routes/integrations.js'
 import { projectRoutes } from './routes/projects.js'
 import { releaseRoutes } from './routes/releases.js'
@@ -35,6 +36,7 @@ export function createApp({ db, config, events }: { db: Db; config: Config; even
   api.use(releaseRoutes(db))
   api.use(integrationRoutes(db, config))
   api.use(chatRoutes(db, config))
+  api.use(codeCompareRoutes(db, config))
   api.use(events.routes(db))
   api.use((_req, _res, next) => next(notFound('No such API endpoint.')))
   app.use('/api', api)

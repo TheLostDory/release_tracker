@@ -11,6 +11,8 @@ export const integrationKeys = {
   jenkinsBuilds: (jobId: string) => [...integrationKeys.all, 'jenkins-builds', jobId] as const,
   followedBuilds: (releaseId: string) => [...integrationKeys.all, 'jenkins-followed', releaseId] as const,
   followedBuild: (id: string) => [...integrationKeys.all, 'jenkins-followed-build', id] as const,
+  codeRefs: (releaseId: string) => [...integrationKeys.all, 'code-refs', releaseId] as const,
+  codeComparison: (releaseId: string) => [...integrationKeys.all, 'code-compare', releaseId] as const,
 }
 
 export function useIntegrations(projectId: string | undefined) {
@@ -25,7 +27,11 @@ export function useIntegrations(projectId: string | undefined) {
 /** Which integrations a project has (for showing/hiding sections). */
 export function useConnected(projectId: string | undefined) {
   const { data = [] } = useIntegrations(projectId)
-  return { jira: data.find((i) => i.kind === 'JIRA') ?? null, jenkins: data.find((i) => i.kind === 'JENKINS') ?? null }
+  return {
+    jira: data.find((i) => i.kind === 'JIRA') ?? null,
+    jenkins: data.find((i) => i.kind === 'JENKINS') ?? null,
+    github: data.find((i) => i.kind === 'GITHUB') ?? null,
+  }
 }
 
 export function useSaveIntegration(projectId: string) {
@@ -184,5 +190,32 @@ export function useUnfollowBuild(releaseId: string) {
   return useMutation({
     mutationFn: api.unfollowBuild,
     onSuccess: () => void qc.invalidateQueries({ queryKey: integrationKeys.followedBuilds(releaseId) }),
+  })
+}
+
+// --- RC vs Jira comparison ---------------------------------------------------------------
+
+export function useCodeRefs(releaseId: string) {
+  return useQuery({ queryKey: integrationKeys.codeRefs(releaseId), queryFn: () => api.getCodeRefs(releaseId) })
+}
+
+export function useSaveCodeRefs(releaseId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (refs: Parameters<typeof api.saveCodeRefs>[1]) => api.saveCodeRefs(releaseId, refs),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: integrationKeys.codeRefs(releaseId) })
+      void qc.removeQueries({ queryKey: integrationKeys.codeComparison(releaseId) })
+    },
+  })
+}
+
+export function useCodeComparison(releaseId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: integrationKeys.codeComparison(releaseId),
+    queryFn: () => api.getCodeComparison(releaseId),
+    enabled,
+    retry: false,
+    staleTime: 2 * 60_000,
   })
 }

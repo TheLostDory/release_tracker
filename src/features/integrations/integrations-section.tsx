@@ -14,7 +14,12 @@ import { toUserMessage } from '@/lib/errors'
 import { inspectCertificate, type Integration, type IntegrationAuth, type IntegrationKind, type PresentedCertificate } from './api'
 import { useDeleteIntegration, useIntegrations, useSaveIntegration, useTestIntegration } from './queries'
 
-const LABELS: Record<IntegrationKind, string> = { JIRA: 'Jira', JENKINS: 'Jenkins' }
+const LABELS: Record<IntegrationKind, string> = { JIRA: 'Jira', JENKINS: 'Jenkins', GITHUB: 'GitHub' }
+
+const DEFAULT_AUTH: Record<IntegrationKind, IntegrationAuth> = { JIRA: 'JIRA_CLOUD', JENKINS: 'JENKINS', GITHUB: 'GITHUB' }
+
+/** The GitHub API address as people know it: https://api.github.com → https://github.com. */
+const githubWebUrl = (apiUrl: string) => (apiUrl === 'https://api.github.com' ? 'https://github.com' : apiUrl.replace(/\/api\/v3$/, ''))
 
 export function IntegrationsSection({ project, canManage }: { project: Project; canManage: boolean }) {
   const { data = [], isLoading } = useIntegrations(project.id)
@@ -27,7 +32,7 @@ export function IntegrationsSection({ project, canManage }: { project: Project; 
         <div className="h-24 animate-pulse rounded-md bg-muted/50" />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {(['JIRA', 'JENKINS'] as const).map((kind) => (
+          {(['JIRA', 'JENKINS', 'GITHUB'] as const).map((kind) => (
             <IntegrationCard
               key={kind}
               kind={kind}
@@ -87,8 +92,8 @@ function IntegrationCard({
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
           <dt className="text-muted-foreground">URL</dt>
           <dd className="truncate">
-            <a href={integration.base_url} target="_blank" rel="noopener noreferrer" className="hover:underline">
-              {integration.base_url} <ExternalLink className="inline size-3" aria-hidden />
+            <a href={kind === 'GITHUB' ? githubWebUrl(integration.base_url) : integration.base_url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+              {kind === 'GITHUB' ? githubWebUrl(integration.base_url) : integration.base_url} <ExternalLink className="inline size-3" aria-hidden />
             </a>
           </dd>
           {kind === 'JIRA' && (
@@ -97,6 +102,14 @@ function IntegrationCard({
               <dd>{integration.auth_type === 'JIRA_CLOUD' ? 'Jira Cloud' : 'Jira Server / Data Center'}</dd>
               <dt className="text-muted-foreground">Project</dt>
               <dd className="font-mono">{integration.settings.projectKey}</dd>
+            </>
+          )}
+          {kind === 'GITHUB' && (
+            <>
+              <dt className="text-muted-foreground">Repositories</dt>
+              <dd className="min-w-0 font-mono text-xs leading-5 break-all">{(integration.settings.repos ?? []).join(', ')}</dd>
+              <dt className="text-muted-foreground">RC branch</dt>
+              <dd className="font-mono text-xs leading-5">{integration.settings.headTemplate ?? 'release/{{version}}'}</dd>
             </>
           )}
           {integration.username && (
@@ -125,7 +138,9 @@ function IntegrationCard({
         <p className="text-sm text-muted-foreground">
           {kind === 'JIRA'
             ? 'Import Jira versions as releases and see each version’s tasks and bugs.'
-            : 'Link Jenkins jobs to releases: drive the Automated jobs step, show builds, run jobs, fill report links.'}
+            : kind === 'GITHUB'
+              ? 'Compare what was merged into each release candidate with the issues in its Jira version.'
+              : 'Link Jenkins jobs to releases: drive the Automated jobs step, show builds, run jobs, fill report links.'}
         </p>
       )}
 
@@ -168,7 +183,9 @@ function IntegrationCard({
         description={
           kind === 'JENKINS'
             ? 'Linked jobs stay on releases but stop syncing until you connect again. The stored token is deleted.'
-            : 'Releases keep their Jira version link but issues won’t load until you connect again. The stored token is deleted.'
+            : kind === 'GITHUB'
+              ? 'Releases keep their chosen branches, but comparisons won’t run until you connect again. The stored token is deleted.'
+              : 'Releases keep their Jira version link but issues won’t load until you connect again. The stored token is deleted.'
         }
         confirmLabel="Disconnect"
         pending={remove.isPending}
@@ -198,8 +215,12 @@ function IntegrationForm({
   onDone: () => void
 }) {
   const save = useSaveIntegration(projectId)
-  const [authType, setAuthType] = useState<IntegrationAuth>(integration?.auth_type ?? (kind === 'JIRA' ? 'JIRA_CLOUD' : 'JENKINS'))
-  const [baseUrl, setBaseUrl] = useState(integration?.base_url ?? '')
+  const [authType, setAuthType] = useState<IntegrationAuth>(integration?.auth_type ?? DEFAULT_AUTH[kind])
+  const [baseUrl, setBaseUrl] = useState(
+    integration ? (kind === 'GITHUB' ? githubWebUrl(integration.base_url) : integration.base_url) : kind === 'GITHUB' ? 'https://github.com' : '',
+  )
+  const [repos, setRepos] = useState((integration?.settings.repos ?? []).join('\n'))
+  const [headTemplate, setHeadTemplate] = useState(integration?.settings.headTemplate ?? 'release/{{version}}')
   const [username, setUsername] = useState(integration?.username ?? '')
   const [secret, setSecret] = useState('')
   const [projectKey, setProjectKey] = useState(integration?.settings.projectKey ?? '')
@@ -237,6 +258,15 @@ function IntegrationForm({
           username: kind === 'JENKINS' || cloud ? username.trim() || null : null,
           ...(secret ? { secret } : {}),
           ...(kind === 'JIRA' ? { projectKey: projectKey.trim().toUpperCase() } : {}),
+          ...(kind === 'GITHUB'
+            ? {
+                repos: repos
+                  .split(/[\s,]+/)
+                  .map((r) => r.trim().replace(/^https?:\/\/[^/]+\//, '').replace(/\.git$/, '').replace(/\/+$/, ''))
+                  .filter(Boolean),
+                headTemplate: headTemplate.trim(),
+              }
+            : {}),
           ...(caCert !== undefined ? { caCert } : {}),
         },
       })
@@ -250,9 +280,11 @@ function IntegrationForm({
     }
   }
 
-  const tokenLabel = kind === 'JENKINS' ? 'API token' : cloud ? 'API token' : 'Personal access token'
+  const tokenLabel = kind === 'GITHUB' ? 'Access token' : kind === 'JENKINS' ? 'API token' : cloud ? 'API token' : 'Personal access token'
   const tokenHint =
-    kind === 'JENKINS'
+    kind === 'GITHUB'
+      ? 'GitHub → Settings → Developer settings → Personal access tokens. Read access to contents and pull requests is enough.'
+      : kind === 'JENKINS'
       ? 'Jenkins → your user → Security → API Token.'
       : cloud
         ? 'id.atlassian.com → Security → API tokens.'
@@ -275,10 +307,19 @@ function IntegrationForm({
           )}
         </FormField>
       )}
-      <FormField label={`${LABELS[kind]} URL`} hint={kind === 'JIRA' ? 'e.g. https://yourcompany.atlassian.net' : 'e.g. https://jenkins.yourcompany.com'}>
+      <FormField
+        label={`${LABELS[kind]} URL`}
+        hint={
+          kind === 'JIRA'
+            ? 'e.g. https://yourcompany.atlassian.net'
+            : kind === 'GITHUB'
+              ? 'https://github.com, or your GitHub Enterprise address (e.g. https://github.yourcompany.com).'
+              : 'e.g. https://jenkins.yourcompany.com'
+        }
+      >
         {(p) => <Input {...p} type="url" required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />}
       </FormField>
-      {(kind === 'JENKINS' || cloud) && (
+      {(kind === 'JENKINS' || (kind === 'JIRA' && cloud)) && (
         <FormField label={kind === 'JIRA' ? 'Account email' : 'User name'}>
           {(p) => <Input {...p} autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} />}
         </FormField>
@@ -299,6 +340,26 @@ function IntegrationForm({
         <FormField label="Jira project key" hint="The prefix of issue keys, e.g. ABC for ABC-123.">
           {(p) => <Input {...p} className="font-mono uppercase" value={projectKey} onChange={(e) => setProjectKey(e.target.value)} />}
         </FormField>
+      )}
+      {kind === 'GITHUB' && (
+        <>
+          <FormField label="Repositories" hint="One per line, as owner/name (or paste the repository's link).">
+            {(p) => (
+              <textarea
+                {...p}
+                rows={3}
+                spellCheck={false}
+                className="w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder={'acme/backend\nacme/web-app'}
+                value={repos}
+                onChange={(e) => setRepos(e.target.value)}
+              />
+            )}
+          </FormField>
+          <FormField label="RC branch or tag" hint="Suggested for each release; {{version}} and {{name}} are filled in. Each release can change it.">
+            {(p) => <Input {...p} className="font-mono" value={headTemplate} onChange={(e) => setHeadTemplate(e.target.value)} placeholder="release/{{version}}" />}
+          </FormField>
+        </>
       )}
       <div className="rounded-md border border-dashed p-2">
         <button
