@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ExternalLink, GitCompareArrows, GitMerge, GitPullRequest, Info, RefreshCw, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -264,7 +264,10 @@ function RefsForm({
 }
 
 function Results({ data }: { data: CodeComparison }) {
-  const [tab, setTab] = useState<ComparisonTab>(() => defaultTab(data))
+  // Links from the release page open a specific list (?tab=codeOnly).
+  const [params] = useSearchParams()
+  const requested = params.get('tab') as ComparisonTab | null
+  const [tab, setTab] = useState<ComparisonTab>(() => (requested && TAB_ORDER.includes(requested) ? requested : defaultTab(data)))
   const [query, setQuery] = useState('')
   const deferred = useDeferredValue(query)
   const shown = useMemo(() => filterComparison(data, deferred), [data, deferred])

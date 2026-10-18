@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ExternalLink, GitCompareArrows, RefreshCw, Unlink } from 'lucide-react'
-import { Link } from 'react-router'
+import { ExternalLink, RefreshCw, Unlink } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { QueryError } from '@/components/query-error'
@@ -17,23 +16,13 @@ import { CATEGORY } from './jira-status'
 import { integrationKeys, useConnected, useJiraIssues, useJiraVersions, useLinkJiraVersion } from './queries'
 
 export function JiraSection({ release, canEdit }: { release: ReleaseDetail; canEdit: boolean }) {
-  const { jira, github } = useConnected(release.project_id)
+  const { jira } = useConnected(release.project_id)
   if (!jira) return null
   return (
     <section aria-labelledby="jira-heading" className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h2 id="jira-heading" className="text-sm font-medium text-muted-foreground">
-          Jira
-        </h2>
-        {github && (
-          <Button asChild size="sm" variant="outline">
-            <Link to={`/releases/${release.id}/compare`}>
-              <GitCompareArrows />
-              Compare with code
-            </Link>
-          </Button>
-        )}
-      </div>
+      <h2 id="jira-heading" className="text-sm font-medium text-muted-foreground">
+        Jira
+      </h2>
       {release.jira_version_id ? (
         <LinkedVersion release={release} canEdit={canEdit} />
       ) : (

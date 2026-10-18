@@ -70,6 +70,22 @@ describe('releaseActionItems', () => {
     )
   })
 
+  it('flags code that does not match Jira, but not a clean or missing check', () => {
+    const check = { jira_only: 2, jira_only_done: 1, code_only: 1, no_key: 0, matched: 9, has_jira: true, error: null }
+    expect(releaseActionItems(release('A', {}, { code_check: check }), today)).toContainEqual(
+      expect.objectContaining({
+        id: 'A:code_mismatch',
+        kind: 'code_mismatch',
+        severity: 'warning',
+        title: 'Code doesn’t match Jira (3)',
+        detail: '2 in Jira not merged (1 marked Done) · 1 merged not in the version',
+      }),
+    )
+    const kinds = (code_check: ActionRelease['code_check']) => releaseActionItems(release('B', {}, { code_check }), today).map((i) => i.kind)
+    expect(kinds({ ...check, jira_only: 0, jira_only_done: 0, code_only: 0 })).not.toContain('code_mismatch')
+    expect(kinds(null)).not.toContain('code_mismatch')
+  })
+
   it('released releases need no action', () => {
     expect(
       releaseActionItems(release('R', { AUTOMATED_JOBS: ['BLOCKED', '2026-10-01'] }, { actual_deployment_date: '2026-10-02' }), today),

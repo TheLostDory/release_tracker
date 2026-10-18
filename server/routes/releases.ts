@@ -71,7 +71,10 @@ const LIST_SQL = `
                    order by t.position)
                    from release_tasks t where t.release_id = r.id), '[]') as tasks,
          coalesce((select json_agg(json_build_object('report_type', x.report_type, 'result', x.result))
-                   from reports x where x.release_id = r.id), '[]') as reports
+                   from reports x where x.release_id = r.id), '[]') as reports,
+         (select row_to_json(c) from (
+            select jira_only, jira_only_done, code_only, no_key, matched, has_jira, error, checked_at
+            from release_code_checks where release_id = r.id) c) as code_check
   from releases r
   join projects p on p.id = r.project_id
   left join sprints s on s.id = r.sprint_id

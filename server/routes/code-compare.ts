@@ -125,6 +125,7 @@ export function codeCompareRoutes(db: Db, config: Config) {
       const unknown = body.refs.find((x) => !allowed.has(x.repo))
       if (unknown) throw new HttpError(422, `${unknown.repo} isn't one of the project's GitHub repositories.`, 'invalid')
       await tx.query('delete from release_code_refs where release_id = $1', [releaseId])
+      await tx.query('select clear_code_check($1)', [releaseId])
       for (const x of body.refs) {
         await tx.query('insert into release_code_refs (release_id, repo, base_ref, head_ref, created_by) values ($1, $2, $3, $4, $5)', [
           releaseId,
@@ -194,6 +195,22 @@ export function codeCompareRoutes(db: Db, config: Config) {
         codeOnly = codeOnly.map((c, i) => (i < found.length ? { ...c, jira: found[i]! } : c))
         if (comparison.codeOnly.length > MAX_KEY_LOOKUPS) notes.push(`Only the first ${MAX_KEY_LOOKUPS} extra issues were looked up in Jira.`)
       }
+
+      // Latest result, for the releases list and the dashboard.
+      const repoErrors = repos.filter((x) => x.error).map((x) => `${x.repo}: ${x.error}`)
+      await tx.query('select record_code_check($1, $2)', [
+        r.id,
+        JSON.stringify({
+          jiraOnly: comparison.jiraOnly.length,
+          jiraOnlyDone: comparison.jiraOnly.filter((i) => i.statusCategory === 'done').length,
+          codeOnly: codeOnly.length,
+          noKey: comparison.noKey.length,
+          matched: comparison.matched.length,
+          totalCommits: repos.reduce((n, x) => n + x.totalCommits, 0),
+          hasJira: !!jiraInfo,
+          error: repoErrors.length ? repoErrors.join('; ').slice(0, 1000) : null,
+        }),
+      ])
 
       return {
         release: { id: r.id, name: r.name, version: r.version },

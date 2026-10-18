@@ -89,6 +89,14 @@ describe.skipIf(remote)('code comparison', () => {
     expect(cmp.syncMerges.map((x: any) => x.title)).toEqual(["Merge branch 'main' into release/1.4.0"])
     expect(cmp.notes).toEqual([])
 
+    // The result is kept for the releases list (and the dashboard).
+    const listed = (await c.get(`/api/releases?projectId=${projectId}`)).body.find((x: any) => x.id === current)
+    expect(listed.code_check).toMatchObject({ jira_only: 148, jira_only_done: 50, code_only: 2, no_key: 1, matched: 2, has_jira: true, error: null })
+    // Choosing other branches clears it until the next comparison.
+    await c.put(`/api/releases/${current}/code-refs`, { refs: [refs.suggestions[0]] })
+    expect((await c.get(`/api/releases?projectId=${projectId}`)).body.find((x: any) => x.id === current).code_check).toBeNull()
+    await c.get(`/api/releases/${current}/code-compare`)
+
     // Cached: a second look doesn't call GitHub again; refresh does.
     const before = github.calls.length
     await c.get(`/api/releases/${current}/code-compare`)

@@ -7,6 +7,7 @@ import { PageTitle } from '@/components/page-title'
 import { ReleaseStatusBadge } from '@/components/status-badges'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CodeCheckCard } from '@/features/integrations/code-check-card'
 import { JenkinsSection } from '@/features/integrations/jenkins-section'
 import { JiraSection } from '@/features/integrations/jira-section'
 import { useCurrentProject } from '@/features/projects/current-project-context'
@@ -158,6 +159,8 @@ export default function ReleaseDetailPage() {
           </ul>
         )}
       </header>
+
+      <CodeCheckCard release={release} canEdit={permissions.canEdit} canManage={permissions.canManage} />
 
       <Section title="Progress">
         <div className="rounded-lg border px-2 pt-4 pb-2">

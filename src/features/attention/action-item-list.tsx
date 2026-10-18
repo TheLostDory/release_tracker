@@ -53,7 +53,7 @@ export function ActionItemList({
         return (
           <li key={item.id}>
             <Link
-              to={`/releases/${item.releaseId}`}
+              to={item.kind === 'code_mismatch' ? `/releases/${item.releaseId}/compare` : `/releases/${item.releaseId}`}
               onClick={onNavigate}
               onMouseEnter={() => prefetch(item.releaseId)}
               onFocus={() => prefetch(item.releaseId)}

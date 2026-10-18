@@ -1,3 +1,4 @@
+import type { CodeCheckCounts } from '@/lib/code-check'
 import { api, qs } from '@/lib/api'
 import type {
   ApprovalStatus,
@@ -54,6 +55,8 @@ export interface ReleaseListItem {
   owner: ProfileSummary | null
   tasks: ListTask[]
   reports: ListReport[]
+  /** Latest "Code vs Jira" result; null until compared. */
+  code_check?: CodeCheckCounts & { checked_at: string } | null
 }
 
 export interface ReleaseTask {

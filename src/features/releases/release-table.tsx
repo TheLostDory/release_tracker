@@ -3,6 +3,9 @@ import { Link, useNavigate } from 'react-router'
 import { ProgressBar } from '@/components/progress-bar'
 import { ReleaseStatusBadge } from '@/components/status-badges'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { CodeCheckBadge } from '@/features/integrations/code-check-badge'
+import { useConnected } from '@/features/integrations/queries'
+import { useCurrentProject } from '@/features/projects/current-project-context'
 import { DueDate } from '@/features/releases/due-date'
 import { useToday } from '@/hooks/use-today'
 import { formatDay, parseDay } from '@/lib/dates'
@@ -17,6 +20,9 @@ interface Props {
 
 export function ReleaseTable({ releases, showSprint = false }: Props) {
   const navigate = useNavigate()
+  // "Code vs Jira" needs GitHub; the column appears once it's connected.
+  const { currentProject } = useCurrentProject()
+  const { github } = useConnected(currentProject?.id)
   const prefetch = usePrefetchRelease()
   // Status needs every step; compute once per data change, not per render.
   const today = useToday()
@@ -32,6 +38,7 @@ export function ReleaseTable({ releases, showSprint = false }: Props) {
           <TableRow>
             <TableHead>Release</TableHead>
             <TableHead>Status</TableHead>
+            {github && <TableHead className="hidden md:table-cell">Code vs Jira</TableHead>}
             <TableHead className="hidden lg:table-cell">Next action</TableHead>
             {showSprint && <TableHead className="hidden md:table-cell">Sprint</TableHead>}
             <TableHead className="hidden sm:table-cell">Owner</TableHead>
@@ -64,6 +71,15 @@ export function ReleaseTable({ releases, showSprint = false }: Props) {
                   overridden={summary.status.overridden}
                 />
               </TableCell>
+              {github && (
+                <TableCell className="hidden md:table-cell">
+                  {r.actual_deployment_date && !r.code_check ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <CodeCheckBadge releaseId={r.id} check={r.code_check} />
+                  )}
+                </TableCell>
+              )}
               <TableCell className="hidden max-w-64 lg:table-cell">
                 {summary.next ? (
                   <span className="flex items-baseline gap-2">

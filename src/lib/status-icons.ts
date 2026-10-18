@@ -2,6 +2,7 @@ import {
   Ban,
   CalendarClock,
   CircleCheck,
+  GitCompareArrows,
   Clock,
   Hourglass,
   OctagonX,
@@ -28,4 +29,5 @@ export const ACTION_KIND_ICONS: Record<ActionKind, LucideIcon> = {
   awaiting_approval: Hourglass,
   deployment_overdue: TimerOff,
   deployment_soon: CalendarClock,
+  code_mismatch: GitCompareArrows,
 }

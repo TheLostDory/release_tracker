@@ -1,4 +1,5 @@
 import type { ReleaseStatus, ReportType, TaskStatus, WorkflowTaskType } from '@/types/domain'
+import { codeCheckState, type CodeCheckCounts } from './code-check'
 import { daysFromToday, formatDay } from './dates'
 import { computeReleaseStatus, type StatusReport } from './release-status'
 import { isDone, REPORT_LABELS, STEP_BY_TYPE } from './workflow'
@@ -19,6 +20,7 @@ export type ActionKind =
   | 'awaiting_approval'
   | 'deployment_overdue'
   | 'deployment_soon'
+  | 'code_mismatch'
 
 export type ActionSeverity = 'critical' | 'warning' | 'info'
 
@@ -53,6 +55,8 @@ export interface ActionRelease {
     owner_id: string | null
   }[]
   reports: readonly StatusReport[]
+  /** Latest "Code vs Jira" result, when compared. */
+  code_check?: CodeCheckCounts | null
 }
 
 /** Deployments this close show up as an item. */
@@ -136,6 +140,22 @@ export function releaseActionItems(release: ActionRelease, today = new Date()): 
       due: approval?.planned_date ?? null,
       assigneeId: approval?.owner_id ?? release.owner?.id ?? null,
       taskType: 'APPROVAL',
+    })
+  }
+
+  // What was merged into the RC doesn't match the Jira version.
+  const code = codeCheckState(release.code_check)
+  if (code.kind === 'differs') {
+    items.push({
+      ...base,
+      id: `${release.id}:code_mismatch`,
+      kind: 'code_mismatch',
+      severity: 'warning',
+      title: `Code doesn’t match Jira (${code.differences})`,
+      detail: code.parts.join(' · '),
+      due: release.planned_deployment_date,
+      assigneeId: release.owner?.id ?? null,
+      taskType: null,
     })
   }
 
