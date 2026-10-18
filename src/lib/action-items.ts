@@ -1,8 +1,8 @@
 import type { ReleaseStatus, ReportType, TaskStatus, WorkflowTaskType } from '@/types/domain'
-import { codeCheckState, type CodeCheckCounts } from './code-check'
-import { daysFromToday, formatDay } from './dates'
-import { computeReleaseStatus, type StatusReport } from './release-status'
-import { isDone, REPORT_LABELS, STEP_BY_TYPE } from './workflow'
+import { codeCheckState, type CodeCheckCounts } from './code-check.js'
+import { daysFromToday, formatDay } from './dates.js'
+import { computeReleaseStatus, type StatusReport } from './release-status.js'
+import { isDone, REPORT_LABELS, STEP_BY_TYPE } from './workflow.js'
 
 /**
  * "Action required" items derived from release state.

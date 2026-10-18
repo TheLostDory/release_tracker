@@ -369,3 +369,30 @@ export async function fakeGitHub() {
   })
   return { ...(await listen(app)), calls }
 }
+
+/** Fake Teams Workflows webhook: records the cards; can be told to fail. */
+export async function fakeTeams() {
+  const app = express()
+  app.use(express.json({ limit: '1mb' }))
+  const cards: any[] = []
+  let failNext = 0
+  app.post('/workflows/release-tracker', (req, res) => {
+    if (failNext > 0) {
+      failNext--
+      return void res.status(500).json({ error: { message: 'Flow run failed' } })
+    }
+    cards.push(req.body.attachments?.[0]?.content)
+    res.status(202).end()
+  })
+  const server = await listen(app)
+  return {
+    ...server,
+    webhook: `${server.url}/workflows/release-tracker`,
+    cards,
+    /** All text of a card, joined (for assertions). */
+    textOf: (card: any) => JSON.stringify(card?.body ?? []),
+    failNextPosts(n: number) {
+      failNext = n
+    },
+  }
+}

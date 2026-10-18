@@ -19,6 +19,8 @@ import {
 import { isJiraProjectKey, jiraProjectName, jiraVersionIssues, jiraVersions, jiraWhoAmI, type JiraVersion } from '../integrations/jira.js'
 import { cached, uncache } from '../integrations/cache.js'
 import { githubRepo, githubWhoAmI, isRepoName, normalizeGitHubApiUrl } from '../integrations/github.js'
+import { checkWebhookUrl, postTeamsCard } from '../integrations/teams.js'
+import { testCard } from '../notifications/cards.js'
 import { inspectCertificates } from '../integrations/certificate.js'
 import { asHttpError, normalizeBaseUrl, normalizeCaCert, OutboundError } from '../integrations/outbound.js'
 import { syncJenkins } from '../integrations/poller.js'
@@ -33,10 +35,10 @@ import {
   type IntegrationRow,
 } from '../integrations/store.js'
 
-const kindParam = z.enum(['jira', 'jenkins', 'github']).transform((k) => k.toUpperCase() as IntegrationKind)
+const kindParam = z.enum(['jira', 'jenkins', 'github', 'teams']).transform((k) => k.toUpperCase() as IntegrationKind)
 
 const saveBody = z.strictObject({
-  authType: z.enum(['JIRA_CLOUD', 'JIRA_SERVER', 'JENKINS', 'GITHUB']),
+  authType: z.enum(['JIRA_CLOUD', 'JIRA_SERVER', 'JENKINS', 'GITHUB', 'TEAMS']),
   baseUrl: z.string().max(500),
   username: z.string().trim().max(200).nullable().optional(),
   /** Omit to keep the stored secret. */
@@ -45,6 +47,22 @@ const saveBody = z.strictObject({
   /** GitHub: repositories ("owner/name") and the RC branch/tag pattern ({{version}}, {{name}}). */
   repos: z.array(z.string().trim()).max(10).optional(),
   headTemplate: z.string().trim().max(250).optional(),
+  /** Teams: which notifications, and when the daily summary goes out. */
+  teams: z
+    .strictObject({
+      events: z.strictObject({ blocked: z.boolean(), jenkins: z.boolean(), daily: z.boolean() }),
+      dailyTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM'),
+      timezone: z.string().max(64).refine((tz) => {
+        try {
+          new Intl.DateTimeFormat('en', { timeZone: tz })
+          return true
+        } catch {
+          return false
+        }
+      }, 'unknown time zone'),
+      weekdaysOnly: z.boolean(),
+    })
+    .optional(),
   /** Company CA certificate(s), PEM. Omit to keep; null or "" to remove. */
   caCert: z.string().max(65536).nullable().optional(),
 })
@@ -81,6 +99,12 @@ async function requireRole(tx: Tx, projectId: string, min: 'MEMBER' | 'ADMIN') {
 export function integrationRoutes(db: Db, config: Config) {
   const router = Router()
 
+  async function sendTeamsTest(tx: Tx, projectId: string, webhook: string, ca: string | null) {
+    const project = await tx.query<{ name: string }>('select name from projects where id = $1', [projectId])
+    await postTeamsCard(webhook, testCard(config.APP_URL, project.rows[0]?.name ?? 'this project'), ca)
+    return 'Connected: a test message was posted to the channel'
+  }
+
   // --- Connections (project settings) ---------------------------------------------
   router.get('/projects/:id/integrations', async (req, res) => {
     const rows = await asUser(db, req, async (tx) =>
@@ -95,8 +119,18 @@ export function integrationRoutes(db: Db, config: Config) {
     const kind = kindParam.parse(req.params.kind)
     const body = saveBody.parse(req.body)
     const key = requireKey(config)
-    const baseUrl = kind === 'GITHUB' ? normalizeGitHubApiUrl(body.baseUrl) : normalizeBaseUrl(body.baseUrl)
-    const authKind = body.authType === 'JENKINS' ? 'JENKINS' : body.authType === 'GITHUB' ? 'GITHUB' : 'JIRA'
+    // Teams: the webhook URL is the secret; its origin is shown as the address.
+    const webhook = kind === 'TEAMS' && body.secret ? checkWebhookUrl(body.secret, config) : null
+    if (kind === 'TEAMS' && !body.teams) throw new HttpError(422, 'Choose which notifications to send.', 'invalid')
+    let baseUrl =
+      kind === 'GITHUB'
+        ? normalizeGitHubApiUrl(body.baseUrl)
+        : kind === 'TEAMS'
+          ? webhook
+            ? new URL(webhook).origin
+            : body.baseUrl
+          : normalizeBaseUrl(body.baseUrl)
+    const authKind = body.authType === 'JENKINS' || body.authType === 'GITHUB' || body.authType === 'TEAMS' ? body.authType : 'JIRA'
     if (authKind !== kind) throw new HttpError(422, 'Auth type does not match the integration.', 'invalid')
     const repos = [...new Set(body.repos ?? [])]
     if (kind === 'GITHUB') {
@@ -119,14 +153,16 @@ export function integrationRoutes(db: Db, config: Config) {
         ca = body.caCert && body.caCert.trim() ? normalizeCaCert(body.caCert) : null
       }
       // Keep the stored secret when none is supplied.
-      let secret = body.secret
+      let secret = webhook ?? body.secret
       if (!secret) {
         try {
           secret = (await loadIntegration(tx, config, projectId, kind)).secret
         } catch {
-          throw new HttpError(422, kind === 'GITHUB' ? 'Enter the access token.' : 'Enter the API token.', 'invalid')
+          throw new HttpError(422, kind === 'TEAMS' ? 'Paste the webhook URL.' : kind === 'GITHUB' ? 'Enter the access token.' : 'Enter the API token.', 'invalid')
         }
       }
+      // Teams keeps its stored webhook: its address comes from it.
+      if (kind === 'TEAMS') baseUrl = new URL(secret).origin
       const username = body.username || null
       let summary: string
       try {
@@ -135,6 +171,9 @@ export function integrationRoutes(db: Db, config: Config) {
           const who = await jiraWhoAmI(conn)
           const projectName = await jiraProjectName(conn, body.projectKey!)
           summary = `Connected as ${who} · project ${projectName} (${body.projectKey})`
+        } else if (kind === 'TEAMS') {
+          // Posting a "connected" card proves the webhook works.
+          summary = await sendTeamsTest(tx, projectId, secret, ca)
         } else if (kind === 'GITHUB') {
           const conn = { apiUrl: baseUrl, secret, ca }
           const who = await githubWhoAmI(conn)
@@ -153,7 +192,9 @@ export function integrationRoutes(db: Db, config: Config) {
           ? { projectKey: body.projectKey }
           : kind === 'GITHUB'
             ? { repos, headTemplate: body.headTemplate || 'release/{{version}}' }
-            : {}
+            : kind === 'TEAMS'
+              ? body.teams!
+              : {}
       const encrypted = encrypt(secret, key)
       // Update-or-insert without ON CONFLICT: its "excluded.secret_encrypted"
       // counts as reading the secret column, which the app login can't do.
@@ -194,7 +235,9 @@ export function integrationRoutes(db: Db, config: Config) {
             ? `Connected as ${await jiraWhoAmI(jiraConnection(row, secret))}`
             : kind === 'GITHUB'
               ? `Connected as ${await githubWhoAmI(githubConnection(row, secret))}`
-              : `Connected to ${await jenkinsWhoAmI(jenkinsConnection(row, secret))}`
+              : kind === 'TEAMS'
+                ? await sendTeamsTest(tx, projectId, secret, row.ca_cert)
+                : `Connected to ${await jenkinsWhoAmI(jenkinsConnection(row, secret))}`
         await tx.query('update integrations set last_error = null, last_checked_at = now() where id = $1', [row.id]).catch(() => {})
         return text
       } catch (err) {

@@ -1,7 +1,7 @@
 import { api, qs } from '@/lib/api'
 
-export type IntegrationKind = 'JIRA' | 'JENKINS' | 'GITHUB'
-export type IntegrationAuth = 'JIRA_CLOUD' | 'JIRA_SERVER' | 'JENKINS' | 'GITHUB'
+export type IntegrationKind = 'JIRA' | 'JENKINS' | 'GITHUB' | 'TEAMS'
+export type IntegrationAuth = 'JIRA_CLOUD' | 'JIRA_SERVER' | 'JENKINS' | 'GITHUB' | 'TEAMS'
 
 /** A project's connection. Credentials never come back from the server. */
 export interface Integration {
@@ -10,11 +10,20 @@ export interface Integration {
   auth_type: IntegrationAuth
   base_url: string
   username: string | null
-  settings: { projectKey?: string; repos?: string[]; headTemplate?: string }
+  settings: { projectKey?: string; repos?: string[]; headTemplate?: string } & Partial<TeamsSettings>
   last_error: string | null
   last_checked_at: string | null
   /** Company CA certificate(s) trusted for this connection (public, PEM). */
   ca_cert: string | null
+}
+
+/** Which notifications go to the project's Teams channel, and when the daily summary is sent. */
+export interface TeamsSettings {
+  events: { blocked: boolean; jenkins: boolean; daily: boolean }
+  /** "HH:MM" in `timezone`. */
+  dailyTime: string
+  timezone: string
+  weekdaysOnly: boolean
 }
 
 export interface SaveIntegrationInput {
@@ -27,6 +36,7 @@ export interface SaveIntegrationInput {
   /** GitHub: repositories (owner/name) and the RC branch pattern. */
   repos?: string[]
   headTemplate?: string
+  teams?: TeamsSettings
   /** Omit to keep; "" removes. */
   caCert?: string
 }

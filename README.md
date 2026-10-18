@@ -255,6 +255,34 @@ Merges of `main` or other release branches are set apart. So are the
 individual commits inside pull requests. Results are cached for 2 minutes;
 *Refresh* reads GitHub and Jira again.
 
+## Microsoft Teams notifications
+
+Each project can post to one Teams channel:
+- **Blocked steps**, with the reason and who blocked it ("Jenkins" when a
+  job did);
+- **Jenkins jobs finished**, with their result;
+- a **daily summary**: the dashboard's *Action required* list, at a time you
+  choose, weekdays only by default.
+
+Everything that happens to a release within a few seconds arrives as one card,
+e.g. a failed Longevity run together with the Automated jobs step it blocked.
+
+**Set up:**
+1. In Teams, open the channel's **⋯ → Workflows** and choose **Post to a
+   channel when a webhook request is received**. Copy the URL it gives you.
+2. In the tracker, go to **Settings → Project → Integrations → Microsoft
+   Teams**. Paste the URL, choose what to send and when, then click
+   **Test & save**. A test message appears in the channel.
+
+**How sending works:**
+- The webhook URL is stored encrypted, and only Microsoft addresses are
+  accepted (`TEAMS_WEBHOOK_HOSTS`).
+- Messages wait in a queue and are retried with a pause if Teams can't be
+  reached; the error shows on the settings card.
+- Messages are only sent while the app is running. A daily summary missed
+  while the computer was off goes out when it starts again (same day only).
+- Links in messages use `APP_URL` (default `http://localhost:8800`).
+
 ## AI assistant ("Ask")
 
 An **Ask** button in the top bar opens a chat about the current project, e.g.

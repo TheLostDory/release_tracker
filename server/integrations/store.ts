@@ -6,22 +6,22 @@ import type { GitHubConnection } from './github.js'
 import type { JenkinsConnection } from './jenkins.js'
 import type { JiraAuth, JiraConnection } from './jira.js'
 
-export type IntegrationKind = 'JIRA' | 'JENKINS' | 'GITHUB'
+export type IntegrationKind = 'JIRA' | 'JENKINS' | 'GITHUB' | 'TEAMS'
 
 export interface IntegrationRow {
   id: string
   project_id: string
   kind: IntegrationKind
-  auth_type: JiraAuth | 'JENKINS' | 'GITHUB'
+  auth_type: JiraAuth | 'JENKINS' | 'GITHUB' | 'TEAMS'
   base_url: string
   username: string | null
-  settings: { projectKey?: string; repos?: string[]; headTemplate?: string }
+  settings: { projectKey?: string; repos?: string[]; headTemplate?: string; [key: string]: unknown }
   last_error: string | null
   last_checked_at: string | null
   ca_cert: string | null
 }
 
-const KIND_LABELS: Record<IntegrationKind, string> = { JIRA: 'Jira', JENKINS: 'Jenkins', GITHUB: 'GitHub' }
+const KIND_LABELS: Record<IntegrationKind, string> = { JIRA: 'Jira', JENKINS: 'Jenkins', GITHUB: 'GitHub', TEAMS: 'Teams' }
 
 export const PUBLIC_COLUMNS = 'id, project_id, kind, auth_type, base_url, username, settings, last_error, last_checked_at, ca_cert'
 

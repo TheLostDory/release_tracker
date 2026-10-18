@@ -15,7 +15,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
-    "sourceMap": true
+    "sourceMap": true,
+    // Shared, framework-free rules from the frontend (e.g. action items for the daily summary).
+    "paths": { "@/*": ["./src/*.ts"] }
   },
   "include": ["server/**/*.ts"],
   "exclude": ["server/**/*.test.ts"]

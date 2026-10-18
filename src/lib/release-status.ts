@@ -1,6 +1,6 @@
 import type { ReleaseStatus, ReportResult, ReportType, TaskStatus, WorkflowTaskType } from '@/types/domain'
-import { daysFromToday, formatDay } from './dates'
-import { isDone, REPORT_LABELS, REVIEW_STEP_FOR_REPORT, STEP_BY_TYPE, unmetDependencies, WORKFLOW_STEPS } from './workflow'
+import { daysFromToday, formatDay } from './dates.js'
+import { isDone, REPORT_LABELS, REVIEW_STEP_FOR_REPORT, STEP_BY_TYPE, unmetDependencies, WORKFLOW_STEPS } from './workflow.js'
 
 /**
  * Overall release status and "next action", derived from the workflow.

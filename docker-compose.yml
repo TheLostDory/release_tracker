@@ -53,6 +53,8 @@ services:
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-release-tracker-local-encryption-key-change-me}
+      # Where people open the app (links in Teams messages).
+      APP_URL: ${APP_URL:-http://localhost:8800}
     # Optional AI assistant ("Ask" button): copy ai.env.example to ai.env and fill it in.
     env_file:
       - path: ai.env

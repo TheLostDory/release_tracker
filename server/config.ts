@@ -29,6 +29,17 @@ const schema = z.object({
   /** 32+ chars; encrypts integration credentials at rest. */
   ENCRYPTION_KEY: z.string().min(32).optional(),
 
+  /** Address people open the app at (links in Teams messages). */
+  APP_URL: z.preprocess((v) => v || undefined, z.string().url().default('http://localhost:8800')),
+  /**
+   * Hosts allowed for Teams webhooks (comma-separated, suffix match). Defaults
+   * to Microsoft's Workflows / Power Automate / connector hosts.
+   */
+  TEAMS_WEBHOOK_HOSTS: z.preprocess(
+    (v) => v || undefined,
+    z.string().default('logic.azure.com,api.powerplatform.com,powerautomate.com,webhook.office.com'),
+  ),
+
   // --- AI assistant (optional; disabled unless AI_BASE_URL is set) -----------
   /** Request format: Vertex AI (Gemini) generateContent, Gemini API generateContent, or OpenAI-compatible. */
   AI_FORMAT: z.preprocess((v) => v || undefined, z.enum(['vertex', 'gemini', 'openai']).default('gemini')),
