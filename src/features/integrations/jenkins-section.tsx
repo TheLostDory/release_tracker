@@ -3,7 +3,6 @@ import { ChevronRight, ExternalLink, Play, Plus, RefreshCw, Trash2 } from 'lucid
 import { toast } from 'sonner'
 import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog'
 import { FormField } from '@/components/form-field'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -13,7 +12,10 @@ import type { ReleaseDetail } from '@/features/releases/api'
 import { formatTimestamp } from '@/lib/dates'
 import { toUserMessage } from '@/lib/errors'
 import { cn } from '@/lib/utils'
-import type { JenkinsBuild, JenkinsJob, JenkinsPurpose } from './api'
+import type { JenkinsJob, JenkinsPurpose } from './api'
+import { BuildResultBadge } from './build-result-badge'
+import { formatDuration as duration } from './followed-builds'
+import { FollowedBuilds } from './followed-builds-section'
 import { parseParameters } from './parameters'
 import {
   useConnected,
@@ -31,29 +33,6 @@ const PURPOSES: Record<JenkinsPurpose, { label: string; hint: string }> = {
   LONGEVITY: { label: 'Longevity report', hint: 'The build’s HTML report becomes the Longevity report link.' },
   HIT: { label: 'HIT report', hint: 'The build’s HTML report becomes the HIT report link.' },
   OTHER: { label: 'Other', hint: 'Shown with its builds; doesn’t change the workflow.' },
-}
-
-function resultBadge(build: JenkinsBuild | null) {
-  if (!build) return <Badge variant="secondary" className="font-normal">No builds</Badge>
-  if (build.building) {
-    return (
-      <Badge className="bg-blue-500/10 font-normal text-blue-700 dark:text-blue-400">
-        <span className="size-1.5 animate-pulse rounded-full bg-current" aria-hidden /> Running
-      </Badge>
-    )
-  }
-  const tone: Record<string, string> = {
-    SUCCESS: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-    FAILURE: 'bg-red-500/10 text-red-700 dark:text-red-400',
-    UNSTABLE: 'bg-amber-500/15 text-amber-800 dark:text-amber-400',
-  }
-  const result = build.result ?? 'UNKNOWN'
-  return <Badge className={cn('font-normal', tone[result] ?? 'bg-muted text-muted-foreground')}>{result.charAt(0) + result.slice(1).toLowerCase()}</Badge>
-}
-
-function duration(ms: number) {
-  const s = Math.round(ms / 1000)
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`
 }
 
 export function JenkinsSection({ release, canEdit }: { release: ReleaseDetail; canEdit: boolean }) {
@@ -113,6 +92,8 @@ export function JenkinsSection({ release, canEdit }: { release: ReleaseDetail; c
         </ul>
       )}
       <p className="text-xs text-muted-foreground">Checked automatically every 2 minutes until the release is deployed.</p>
+
+      <FollowedBuilds releaseId={release.id} canEdit={canEdit} />
     </section>
   )
 }
@@ -136,7 +117,7 @@ function JobRow({ job, releaseId, canEdit }: { job: JenkinsJob; releaseId: strin
           <span className="font-mono text-xs">{job.job_path}</span>
           <span className="ml-2 text-xs text-muted-foreground">{PURPOSES[job.purpose].label}</span>
         </span>
-        {resultBadge(b)}
+        <BuildResultBadge build={b} />
         {b && (
           <a href={b.url} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground tabular-nums hover:underline">
             #{b.number} · {formatTimestamp(new Date(b.timestamp).toISOString())}
@@ -181,7 +162,7 @@ function JobRow({ job, releaseId, canEdit }: { job: JenkinsJob; releaseId: strin
             <ul className="space-y-1">
               {(builds.data ?? []).map((x) => (
                 <li key={x.number} className="flex items-center gap-2 text-xs">
-                  {resultBadge(x)}
+                  <BuildResultBadge build={x} />
                   <a href={x.url} target="_blank" rel="noopener noreferrer" className="tabular-nums hover:underline">
                     #{x.number}
                   </a>

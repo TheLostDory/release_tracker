@@ -9,6 +9,8 @@ export const integrationKeys = {
   jiraIssues: (releaseId: string) => [...integrationKeys.all, 'jira-issues', releaseId] as const,
   jenkinsJobs: (releaseId: string) => [...integrationKeys.all, 'jenkins', releaseId] as const,
   jenkinsBuilds: (jobId: string) => [...integrationKeys.all, 'jenkins-builds', jobId] as const,
+  followedBuilds: (releaseId: string) => [...integrationKeys.all, 'jenkins-followed', releaseId] as const,
+  followedBuild: (id: string) => [...integrationKeys.all, 'jenkins-followed-build', id] as const,
 }
 
 export function useIntegrations(projectId: string | undefined) {
@@ -143,4 +145,44 @@ export function useRunJenkinsJob(releaseId: string) {
 export function useSyncJenkins(releaseId: string) {
   const refresh = useRefreshJenkins(releaseId)
   return useMutation({ mutationFn: () => api.syncJenkins(releaseId), onSuccess: refresh })
+}
+
+// --- Followed builds -------------------------------------------------------------------
+
+export function useFollowedBuilds(releaseId: string, enabled: boolean) {
+  return useQuery({ queryKey: integrationKeys.followedBuilds(releaseId), queryFn: () => api.listFollowedBuilds(releaseId), enabled })
+}
+
+/**
+ * Live status of one followed build: asks Jenkins on open, then every 15 s
+ * while anything in the tree is still running or queued.
+ */
+export function useFollowedBuildStatus(followed: api.FollowedBuild) {
+  return useQuery({
+    queryKey: integrationKeys.followedBuild(followed.id),
+    queryFn: () => api.refreshFollowedBuild(followed.id),
+    placeholderData: followed,
+    retry: false,
+    refetchInterval: (q) => (isActive((q.state.data ?? followed).status) ? 15_000 : false),
+  })
+}
+
+export function isActive(node: api.BuildNode | null): boolean {
+  return !!node && (node.building || node.queued || node.children.some(isActive))
+}
+
+export function useFollowBuild(releaseId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { url: string; label?: string | null }) => api.followBuild(releaseId, input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: integrationKeys.followedBuilds(releaseId) }),
+  })
+}
+
+export function useUnfollowBuild(releaseId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.unfollowBuild,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: integrationKeys.followedBuilds(releaseId) }),
+  })
 }

@@ -187,13 +187,47 @@ export interface FakeBuild {
   result: string | null
   building: boolean
   artifacts?: { relativePath: string }[]
+  /** Pipeline "build" steps: [job, build number or null while queued]. */
+  downstream?: [string, number | null][]
+  /** Parameterized Trigger plugin: [job, number]. */
+  triggered?: [string, number][]
+  /** Console log as Jenkins' progressiveHtml. */
+  consoleHtml?: string
 }
 
 export async function fakeJenkins() {
   const app = express()
   const jobs = new Map<string, FakeBuild[]>([
     ['platform/integration-tests', [{ number: 41, result: 'FAILURE', building: false }]],
-    ['platform/hit-suite', [{ number: 7, result: 'SUCCESS', building: false, artifacts: [{ relativePath: 'reports/hit.html' }] }]],
+    [
+      'platform/hit-suite',
+      [{ number: 7, result: 'SUCCESS', building: false, artifacts: [{ relativePath: 'reports/hit.html' }], triggered: [['platform/report-publisher', 2]] }],
+    ],
+    ['platform/report-publisher', [{ number: 2, result: 'SUCCESS', building: false }]],
+    ['platform/deploy', []],
+    // A running pipeline that started three jobs (one still waiting in the queue).
+    [
+      'release/orchestrator',
+      [{ number: 5, result: null, building: true, downstream: [['platform/integration-tests', 41], ['platform/hit-suite', 7], ['platform/deploy', null]] }],
+    ],
+    // An old freestyle job: its downstream builds only show in the console log.
+    [
+      'legacy/umbrella',
+      [
+        {
+          number: 3,
+          result: 'FAILURE',
+          building: false,
+          consoleHtml: [
+            'Started by user Ci Bot',
+            "Triggering a new build of <a href='/job/platform/job/report-publisher/' class='model-link'>platform » report-publisher</a>",
+            "<a href='/job/platform/job/report-publisher/2/' class='model-link'>platform » report-publisher #2</a> completed. Result was SUCCESS",
+            "Unrelated link <a href='/job/platform/job/hit-suite/7/'>hit-suite #7</a>",
+            'Finished: FAILURE',
+          ].join('\n'),
+        },
+      ],
+    ],
   ])
   const triggered: { job: string; params: Record<string, string> }[] = []
   app.use((req, res, next) => {
@@ -203,6 +237,33 @@ export async function fakeJenkins() {
     next()
   })
   app.get('/api/json', (_req, res) => void res.json({ mode: 'NORMAL' }))
+  // One build: /job/a/job/b/42/api/json (or lastBuild) and its console log.
+  app.get(/^((?:\/job\/[^/]+)+)\/(\d+|lastBuild)\/(api\/json|logText\/progressiveHtml)$/, (req, res) => {
+    const [, jobPart, which, what] = /^((?:\/job\/[^/]+)+)\/(\d+|lastBuild)\/(api\/json|logText\/progressiveHtml)$/.exec(req.path)!
+    const path = jobPart!.split('/job/').filter(Boolean).map(decodeURIComponent).join('/')
+    const builds = jobs.get(path)
+    const b = which === 'lastBuild' ? builds?.at(-1) : builds?.find((x) => x.number === Number(which))
+    if (!b) return void res.status(404).end()
+    const origin = `${req.protocol}://${req.get('host')}`
+    if (what !== 'api/json') return void res.type('text/html').send(b.consoleHtml ?? 'Started by user Ci Bot\nFinished: SUCCESS')
+    res.json({
+      number: b.number,
+      result: b.result,
+      building: b.building,
+      url: `${origin}${jobPart}/${b.number}/`,
+      timestamp: 1_900_000_000_000,
+      duration: b.building ? 0 : 61_000,
+      estimatedDuration: 120_000,
+      fullDisplayName: `${path.split('/').join(' » ')} #${b.number}`,
+      actions: [
+        { _class: 'hudson.model.CauseAction' },
+        b.downstream ? { downstreamBuilds: b.downstream.map(([jobFullName, buildNumber]) => ({ jobFullName, buildNumber })) } : {},
+        b.triggered
+          ? { triggeredBuilds: b.triggered.map(([job, number]) => ({ number, url: `${origin}/job/${job.split('/').join('/job/')}/${number}/` })) }
+          : {},
+      ],
+    })
+  })
   // /job/a/job/b/api/json  and  POST /job/a/job/b/buildWithParameters
   app.use((req, res) => {
     const m = /^((?:\/job\/[^/]+)+)\/(api\/json|build|buildWithParameters)$/.exec(req.path)

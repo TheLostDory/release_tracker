@@ -120,6 +120,7 @@ src/
 | `GET /projects/:id/integrations`, `PUT/DELETE …/integrations/{jira,jenkins}`, `POST …/test` | connections (admins) |
 | `GET /projects/:id/jira/versions`, `POST /projects/:id/jira/import`, `PUT /releases/:id/jira`, `GET /releases/:id/jira/issues` | Jira |
 | `GET/POST /releases/:id/jenkins`, `POST /releases/:id/jenkins/sync`, `DELETE /jenkins/jobs/:id`, `GET …/builds`, `POST …/run` | Jenkins |
+| `GET/POST /releases/:id/jenkins/followed`, `POST /jenkins/followed/:id/refresh`, `DELETE /jenkins/followed/:id` | Followed Jenkins builds |
 
 ## Projects, roles and invitations
 
@@ -164,6 +165,17 @@ Connect per project in **Settings → Project → Integrations** (admins and own
 | Other | shown with its builds only |
 
 Each job shows its latest build and history and has a **Run** button (members+). The server checks linked jobs of undeployed releases **every 2 minutes**, plus *Sync now*. Changes appear in the activity log as *Jenkins*.
+
+**Followed builds** (release page → Jenkins → *Follow a build*). Paste the
+link of a specific run: a classic or Blue Ocean build link, or a job link,
+which follows that job's latest run. The page shows the run's status, plus
+every build it started, nested, with each one's own status:
+- Pipeline `build` steps;
+- the Parameterized Trigger and MultiJob plugins;
+- otherwise, the "Starting building…" lines of the console log.
+
+The status refreshes every 15 seconds while anything is running. Followed
+builds are display only and don't change the workflow.
 
 **Company certificates** (`SELF_SIGNED_CERT_IN_CHAIN`, "certificate this server doesn't trust"): many companies sign internal sites with their own certificate authority. Your Mac trusts it; the app's container doesn't. Paste the company root certificate into **Company HTTPS certificate** in the connection form. It's trusted only for that connection, and normal verification stays on. To get it on a Mac:
 

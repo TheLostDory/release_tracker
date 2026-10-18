@@ -16,6 +16,7 @@ export const forbidden = (message = "You don't have permission to do that.") => 
 
 /** Friendly messages for constraint violations (checked before generic codes). */
 const CONSTRAINT_MESSAGES: Record<string, string> = {
+  release_jenkins_builds_unique: 'This build is already followed on this release.',
   sprints_name_per_project_unique: 'A sprint with this name already exists in this project.',
   sprints_single_active_idx: 'Another sprint is already active. Mark it completed first.',
   sprints_dates_check: 'The end date must be on or after the start date.',

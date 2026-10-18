@@ -109,6 +109,41 @@ export const linkJiraVersion = (releaseId: string, versionId: string | null) => 
 export const getJiraIssues = (releaseId: string, refresh = false) =>
   api.get<JiraIssuesResponse>(`/releases/${releaseId}/jira/issues${qs({ refresh: refresh || undefined })}`)
 
+/** A followed build and, nested, the builds it started (as Jenkins reports them). */
+export interface BuildNode {
+  jobPath: string
+  /** Null while waiting in Jenkins' queue. */
+  number: number | null
+  name: string
+  url: string
+  result: JenkinsBuild['result']
+  building: boolean
+  queued: boolean
+  timestamp: number | null
+  duration: number | null
+  estimatedDuration: number | null
+  children: BuildNode[]
+  error?: string
+}
+
+export interface FollowedBuild {
+  id: string
+  release_id: string
+  job_path: string
+  build_number: number
+  label: string | null
+  status: BuildNode | null
+  last_synced_at: string | null
+  last_error: string | null
+  created_at: string
+}
+
+export const listFollowedBuilds = (releaseId: string) => api.get<FollowedBuild[]>(`/releases/${releaseId}/jenkins/followed`)
+export const followBuild = (releaseId: string, input: { url: string; label?: string | null }) =>
+  api.post<FollowedBuild>(`/releases/${releaseId}/jenkins/followed`, input)
+export const refreshFollowedBuild = (id: string) => api.post<FollowedBuild>(`/jenkins/followed/${id}/refresh`)
+export const unfollowBuild = (id: string) => api.del(`/jenkins/followed/${id}`)
+
 export const listJenkinsJobs = (releaseId: string) => api.get<JenkinsJob[]>(`/releases/${releaseId}/jenkins`)
 export const linkJenkinsJob = (releaseId: string, input: { jobPath: string; purpose: JenkinsPurpose; parameters: Record<string, string> }) =>
   api.post<{ id: string }>(`/releases/${releaseId}/jenkins`, input)

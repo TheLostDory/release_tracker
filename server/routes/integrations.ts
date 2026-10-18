@@ -6,11 +6,20 @@ import type { Db, Tx } from '../db/pool.js'
 import { userId } from '../auth/sessions.js'
 import { forbidden, HttpError, notFound } from '../http/errors.js'
 import { asUser, idParam, uuid } from '../http/helpers.js'
-import { applyTemplate, jenkinsBuilds, jenkinsTrigger, jenkinsWhoAmI, normalizeJobPath } from '../integrations/jenkins.js'
+import {
+  applyTemplate,
+  jenkinsBuilds,
+  jenkinsBuildTree,
+  jenkinsTrigger,
+  jenkinsWhoAmI,
+  normalizeJobPath,
+  parseBuildUrl,
+  resolveBuildNumber,
+} from '../integrations/jenkins.js'
 import { isJiraProjectKey, jiraProjectName, jiraVersionIssues, jiraVersions, jiraWhoAmI, type JiraVersion } from '../integrations/jira.js'
 import { cached, uncache } from '../integrations/cache.js'
 import { inspectCertificates } from '../integrations/certificate.js'
-import { asHttpError, normalizeBaseUrl, normalizeCaCert } from '../integrations/outbound.js'
+import { asHttpError, normalizeBaseUrl, normalizeCaCert, OutboundError } from '../integrations/outbound.js'
 import { syncJenkins } from '../integrations/poller.js'
 import {
   jenkinsConnection,
@@ -34,6 +43,13 @@ const saveBody = z.strictObject({
   /** Company CA certificate(s), PEM. Omit to keep; null or "" to remove. */
   caCert: z.string().max(65536).nullable().optional(),
 })
+
+const followBody = z.strictObject({
+  url: z.string().trim().min(1).max(2000),
+  label: z.string().trim().max(100).nullable().optional(),
+})
+
+const FOLLOWED_COLUMNS = 'id, release_id, job_path, build_number, label, status, last_synced_at, last_error, created_at'
 
 const jobBody = z.strictObject({
   jobPath: z.string().min(1).max(500),
@@ -342,6 +358,78 @@ export function integrationRoutes(db: Db, config: Config) {
     // Builds sit in Jenkins' queue briefly; check again shortly.
     setTimeout(() => void syncJenkins(db, config, releaseId).catch(() => {}), 10_000)
     res.status(202).json({ queued: true })
+  })
+
+  // --- Followed builds: a pasted build link and everything it started -----------------
+  router.get('/releases/:id/jenkins/followed', async (req, res) => {
+    const releaseId = idParam(req)
+    const rows = await asUser(db, req, async (tx) => {
+      await releaseInfo(tx, releaseId)
+      return (await tx.query(`select ${FOLLOWED_COLUMNS} from release_jenkins_builds where release_id = $1 order by created_at`, [releaseId])).rows
+    })
+    res.json(rows)
+  })
+
+  router.post('/releases/:id/jenkins/followed', async (req, res) => {
+    const releaseId = idParam(req)
+    const body = followBody.parse(req.body)
+    const row = await asUser(db, req, async (tx) => {
+      const release = await releaseInfo(tx, releaseId)
+      await requireRole(tx, release.project_id, 'MEMBER')
+      const { row: jenkins, secret } = await loadIntegration(tx, config, release.project_id, 'JENKINS')
+      const conn = jenkinsConnection(jenkins, secret)
+      const ref = parseBuildUrl(body.url, jenkins.base_url)
+      // A job link (or "lastBuild") means its latest run: follow that run.
+      const number = await resolveBuildNumber(conn, ref).catch(asHttpError)
+      const status = await jenkinsBuildTree(conn, { jobPath: ref.jobPath, build: number }).catch(asHttpError)
+      const r = await tx.query(
+        `insert into release_jenkins_builds (release_id, job_path, build_number, label, status, last_synced_at, created_by)
+         values ($1, $2, $3, $4, $5, now(), $6) returning ${FOLLOWED_COLUMNS}`,
+        [releaseId, ref.jobPath, number, body.label || null, JSON.stringify(status), userId(req)],
+      )
+      return r.rows[0]
+    })
+    res.status(201).json(row)
+  })
+
+  /** Live status from Jenkins (stored as the last known status). Anyone who can see the release. */
+  router.post('/jenkins/followed/:fid/refresh', async (req, res) => {
+    const fid = idParam(req, 'fid')
+    const row = await asUser(db, req, async (tx) => {
+      const found = await tx.query<{ release_id: string; job_path: string; build_number: number }>(
+        'select release_id, job_path, build_number from release_jenkins_builds where id = $1',
+        [fid],
+      )
+      const followed = found.rows[0]
+      if (!followed) throw notFound('Followed build not found.')
+      const release = await releaseInfo(tx, followed.release_id)
+      const { row: jenkins, secret } = await loadIntegration(tx, config, release.project_id, 'JENKINS')
+      try {
+        // Several people may watch the same build: ask Jenkins at most every 10 s.
+        const status = await cached(`followed:${fid}`, 10_000, () =>
+          jenkinsBuildTree(jenkinsConnection(jenkins, secret), { jobPath: followed.job_path, build: followed.build_number }),
+        )
+        await tx.query('select jenkins_followed_record($1, $2, null)', [fid, JSON.stringify(status)])
+      } catch (err) {
+        if (!(err instanceof OutboundError)) throw err
+        // Keep the last known status; show why it couldn't be refreshed.
+        await tx.query('select jenkins_followed_record($1, null, $2)', [fid, err.message])
+      }
+      return (await tx.query(`select ${FOLLOWED_COLUMNS} from release_jenkins_builds where id = $1`, [fid])).rows[0]
+    })
+    res.json(row)
+  })
+
+  router.delete('/jenkins/followed/:fid', async (req, res) => {
+    const fid = idParam(req, 'fid')
+    await asUser(db, req, async (tx) => {
+      const r = await tx.query('delete from release_jenkins_builds where id = $1', [fid])
+      if (!r.rowCount) {
+        const visible = await tx.query('select 1 from release_jenkins_builds where id = $1', [fid])
+        throw visible.rowCount ? forbidden() : notFound('Followed build not found.')
+      }
+    })
+    res.status(204).end()
   })
 
   router.post('/releases/:id/jenkins/sync', async (req, res) => {

@@ -228,4 +228,56 @@ describe.skipIf(remote)('integrations', () => {
     expect((await c.post(`/api/releases/${release.id}/jenkins`, { jobPath: '../../etc', purpose: 'OTHER' })).status).toBe(422)
     expect((await c.post(`/api/releases/${release.id}/jenkins`, { jobPath: 'x', purpose: 'OTHER', parameters: { 'bad key!': 'v' } })).status).toBe(400)
   })
+
+  it('follows a pasted build link with the status of every build it started', async () => {
+    const c = await owner()
+    const p = (await c.post('/api/projects', { name: `Followed ${Date.now()}`, sprintsEnabled: false })).body.id
+    await c.put(`/api/projects/${p}/integrations/jenkins`, { authType: 'JENKINS', baseUrl: jenkins.url, username: JENKINS.user, secret: JENKINS.token })
+    const release = (await c.post('/api/releases', { project_id: p, name: 'RC_F', version: '9.2.0', planned_deployment_date: '2030-04-01' })).body
+
+    // Running pipeline → its three downstream jobs (one queued), and their own downstream build.
+    const followed = await c.post(`/api/releases/${release.id}/jenkins/followed`, {
+      url: `${jenkins.url}/job/release/job/orchestrator/5/console`,
+      label: 'Release pipeline',
+    })
+    expect(followed.status).toBe(201)
+    expect(followed.body).toMatchObject({ job_path: 'release/orchestrator', build_number: 5, label: 'Release pipeline' })
+    const tree = followed.body.status
+    expect(tree).toMatchObject({ name: 'release » orchestrator #5', building: true, result: null, estimatedDuration: 120000 })
+    expect(tree.children.map((ch: any) => [ch.name, ch.result, ch.queued])).toEqual([
+      ['platform » integration-tests #41', 'FAILURE', false],
+      ['platform » hit-suite #7', 'SUCCESS', false],
+      ['platform/deploy (waiting in queue)', null, true],
+    ])
+    expect(tree.children[1].children.map((ch: any) => ch.name)).toEqual(['platform » report-publisher #2'])
+
+    // Same build twice → a clear conflict.
+    const again = await c.post(`/api/releases/${release.id}/jenkins/followed`, { url: `${jenkins.url}/job/release/job/orchestrator/5/` })
+    expect(again.status).toBe(409)
+    expect(again.body.error.message).toBe('This build is already followed on this release.')
+
+    // A job link follows its latest run; downstream builds come from the console log.
+    const legacy = await c.post(`/api/releases/${release.id}/jenkins/followed`, { url: `${jenkins.url}/job/legacy/job/umbrella/` })
+    expect(legacy.body).toMatchObject({ build_number: 3, status: { result: 'FAILURE' } })
+    expect(legacy.body.status.children.map((ch: any) => ch.name)).toEqual(['platform » report-publisher #2'])
+
+    // Refresh picks up the finished build and stores it.
+    jenkins.finish('release/orchestrator', 'SUCCESS')
+    const refreshed = await c.post(`/api/jenkins/followed/${followed.body.id}/refresh`)
+    expect(refreshed.status).toBe(200)
+    expect(refreshed.body).toMatchObject({ last_error: null, status: { building: false, result: 'SUCCESS' } })
+
+    const list = (await c.get(`/api/releases/${release.id}/jenkins/followed`)).body
+    expect(list.map((f: any) => f.job_path)).toEqual(['release/orchestrator', 'legacy/umbrella'])
+
+    // Bad links.
+    const elsewhere = await c.post(`/api/releases/${release.id}/jenkins/followed`, { url: 'https://other.example.com/job/a/1/' })
+    expect(elsewhere.status).toBe(422)
+    const missing = await c.post(`/api/releases/${release.id}/jenkins/followed`, { url: `${jenkins.url}/job/release/job/orchestrator/99/` })
+    expect(missing.status).toBe(502)
+
+    expect((await c.del(`/api/jenkins/followed/${legacy.body.id}`)).status).toBe(204)
+    expect((await c.get(`/api/releases/${release.id}/jenkins/followed`)).body).toHaveLength(1)
+    await c.del(`/api/projects/${p}`)
+  })
 })
