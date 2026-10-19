@@ -8,7 +8,9 @@ import { useConnected } from '@/features/integrations/queries'
 import { useCurrentProject } from '@/features/projects/current-project-context'
 import { DueDate } from '@/features/releases/due-date'
 import { useToday } from '@/hooks/use-today'
+import { ATTENTION_STRIPE, ATTENTION_TEXT } from '@/lib/attention-styles'
 import { formatDay, parseDay } from '@/lib/dates'
+import { cn } from '@/lib/utils'
 import type { ReleaseListItem } from './api'
 import { usePrefetchRelease } from './queries'
 import { summarizeRelease } from './release-summary'
@@ -50,7 +52,7 @@ export function ReleaseTable({ releases, showSprint = false }: Props) {
           {rows.map(({ release: r, summary }) => (
             <TableRow
               key={r.id}
-              className="cursor-pointer"
+              className={cn('cursor-pointer', ATTENTION_STRIPE[summary.status.status])}
               onMouseEnter={() => prefetch(r.id)}
               onFocus={() => prefetch(r.id)}
               onClick={(e) => {
@@ -63,6 +65,12 @@ export function ReleaseTable({ releases, showSprint = false }: Props) {
                   {r.name}
                 </Link>
                 <span className="ml-2 font-mono text-xs text-muted-foreground">{r.version}</span>
+                {ATTENTION_TEXT[summary.status.status] && summary.status.reasons[0] && (
+                  <span className={cn('block max-w-80 truncate text-xs font-medium', ATTENTION_TEXT[summary.status.status])} title={summary.status.reasons.join('\n')}>
+                    {summary.status.reasons[0]}
+                    {summary.status.reasons.length > 1 && ` (+${summary.status.reasons.length - 1})`}
+                  </span>
+                )}
               </TableCell>
               <TableCell>
                 <ReleaseStatusBadge

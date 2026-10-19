@@ -1,6 +1,7 @@
 import { Layers } from 'lucide-react'
 import { RELEASE_STATUS_ICONS } from '@/lib/status-icons'
 import { RELEASE_STATUS_LABELS } from '@/lib/status-labels'
+import { ATTENTION_SURFACE } from '@/lib/attention-styles'
 import { cn } from '@/lib/utils'
 import type { ReleaseStatus } from '@/types/domain'
 
@@ -49,6 +50,7 @@ export function StatusTiles({ counts, total, selected, onSelect }: Props) {
               'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
               active && 'border-foreground/40 bg-muted/60',
               value === 0 && key !== null && !active && 'opacity-60',
+              value > 0 && key !== null && ATTENTION_SURFACE[key],
             )}
           >
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">

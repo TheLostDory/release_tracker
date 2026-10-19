@@ -34,8 +34,9 @@ export function TaskStatusBadge({ status }: { status: TaskStatus }) {
 
 const RELEASE_STATUS_CLASS: Record<ReleaseStatus, string> = {
   ON_TRACK: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
-  AT_RISK: 'bg-amber-500/15 text-amber-800 dark:text-amber-400',
-  BLOCKED: 'bg-red-500/10 text-red-700 dark:text-red-400',
+  // Filled: the states that need someone's attention stand out from the rest.
+  AT_RISK: 'bg-amber-400 text-amber-950 dark:bg-amber-400 dark:text-amber-950',
+  BLOCKED: 'bg-red-600 text-white dark:bg-red-500 dark:text-white',
   WAITING_FOR_APPROVAL: 'bg-violet-500/10 text-violet-700 dark:text-violet-400',
   RELEASED: 'bg-muted text-muted-foreground',
 }

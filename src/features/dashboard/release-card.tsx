@@ -7,6 +7,7 @@ import type { ReleaseListItem } from '@/features/releases/api'
 import { usePrefetchRelease } from '@/features/releases/queries'
 import type { ReleaseSummary } from '@/features/releases/release-summary'
 import { formatDay } from '@/lib/dates'
+import { ATTENTION_SURFACE, ATTENTION_TEXT } from '@/lib/attention-styles'
 import { cn } from '@/lib/utils'
 import { CARD_MILESTONES, summarizeStages, type StageState } from '@/lib/workflow-stages'
 
@@ -37,7 +38,7 @@ export const ReleaseCard = memo(function ReleaseCard({ release, summary }: Props
       className={cn(
         'group flex flex-col gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-foreground/25',
         'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
-        status.status === 'BLOCKED' && 'border-red-500/40',
+        ATTENTION_SURFACE[status.status],
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -99,7 +100,7 @@ export const ReleaseCard = memo(function ReleaseCard({ release, summary }: Props
           </span>
         )}
         {status.reasons[0] && status.status !== 'ON_TRACK' && status.status !== 'RELEASED' && (
-          <p className="mt-1 truncate text-xs text-muted-foreground" title={status.reasons.join('\n')}>
+          <p className={cn('mt-1 truncate text-xs font-medium', ATTENTION_TEXT[status.status] ?? 'text-muted-foreground')} title={status.reasons.join('\n')}>
             {status.reasons[0]}
             {status.reasons.length > 1 && ` (+${status.reasons.length - 1} more)`}
           </p>

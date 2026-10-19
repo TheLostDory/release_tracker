@@ -19,6 +19,7 @@ import {
   useUpdateReport,
   useUpdateTask,
 } from '@/features/releases/queries'
+import { AttentionBanner } from '@/features/releases/attention-banner'
 import { ReleaseActions } from '@/features/releases/release-actions'
 import { summarizeRelease } from '@/features/releases/release-summary'
 import { ActivityFeed } from '@/features/releases/workflow/activity-feed'
@@ -145,19 +146,16 @@ export default function ReleaseDetailPage() {
           </Meta>
         </dl>
 
-        {status.reasons.length > 0 && (
-          <ul
-            className={cn(
-              'space-y-0.5 rounded-lg border px-4 py-2.5 text-sm',
-              status.status === 'BLOCKED'
-                ? 'border-red-500/30 bg-red-500/5 text-red-800 dark:text-red-300'
-                : 'border-amber-500/30 bg-amber-500/5 text-amber-900 dark:text-amber-300',
-            )}
-          >
-            {status.reasons.map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-          </ul>
+        {status.status === 'AT_RISK' || status.status === 'BLOCKED' ? (
+          <AttentionBanner status={status.status} reasons={status.reasons} overridden={status.overridden} />
+        ) : (
+          status.reasons.length > 0 && (
+            <ul className="space-y-0.5 rounded-lg border px-4 py-2.5 text-sm text-muted-foreground">
+              {status.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          )
         )}
       </header>
 
