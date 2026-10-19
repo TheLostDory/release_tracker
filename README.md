@@ -323,6 +323,8 @@ secret stay on the server, and the model never calls Jira or Jenkins itself.
    If your proxy uses another path, set `AI_PATH`. `ai.env` is never committed.
 2. Run `docker compose up -d`.
 3. Check the settings: `docker compose exec app node dist-server/server/ai/check.js`.
+   To try other models without editing `ai.env`, add `--model a,b,c`. The
+   check shows which models answer.
    It asks the model one tiny question and says what failed:
    - the login: client id, secret, `AI_TOKEN_AUTH`;
    - the path: project, location, model;

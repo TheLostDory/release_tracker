@@ -10,11 +10,27 @@ import { inspectCertificates } from '../integrations/certificate.js'
 import { aiSettings, askModel, TOKEN_SERVICE } from './client.js'
 import { probeGateway } from './probe.js'
 
-const config = loadConfig({ DATABASE_URL: 'postgres://unused@localhost/unused', ...process.env })
+// Try other models without editing ai.env:  check.js --model gemini-2.5-flash,gemini-3.7-flash
+const modelArg = process.argv.indexOf('--model')
+const models = modelArg > 0 ? (process.argv[modelArg + 1] ?? '').split(',').map((m) => m.trim()).filter(Boolean) : []
+if (models.length > 1) {
+  const { execFileSync } = await import('node:child_process')
+  for (const m of models) {
+    console.log(`\n=== ${m} ===`)
+    try {
+      execFileSync(process.execPath, [process.argv[1]!, '--model', m], { stdio: 'inherit' })
+    } catch {
+      // the child already printed why
+    }
+  }
+  process.exit(0)
+}
+const config = loadConfig({ DATABASE_URL: 'postgres://unused@localhost/unused', ...process.env, ...(models[0] ? { AI_MODEL: models[0] } : {}) })
 try {
   const s = aiSettings(config)
   console.log(
     [
+      `Model:     ${s.model}`,
       `Format:    ${s.format}`,
       `URL:       ${s.url}`,
       `Headers:   ${s.headerNames.join(', ') || '(none)'}`,
