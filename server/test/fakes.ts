@@ -153,6 +153,13 @@ export async function fakeAi() {
     if (req.params.model === 'flaky:streamGenerateContent' && flaky++ % 2 === 0) {
       return void res.status(500).json({ error: 'ErrorResponseCode', message: 'Backend temporarily unavailable' })
     }
+    if (req.params.model?.startsWith('java-only:') && !req.get('user-agent')?.startsWith('Java/')) {
+      return void res.status(500).json({ error: 'Internal Server Error', message: 'ErrorResponseCode' })
+    }
+    if (req.params.model?.startsWith('java-only:')) {
+      res.type('text/event-stream')
+      return void res.send(`data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: 'OK' }] } }] })}\n\n`)
+    }
     if (req.params.model?.startsWith('broken:')) {
       return void res.status(500).json({ fault: { faultstring: 'Quota exceeded', detail: { errorcode: 'policies.ratelimit.QuotaViolation' } } })
     }

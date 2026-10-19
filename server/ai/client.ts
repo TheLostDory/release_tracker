@@ -123,6 +123,31 @@ interface OpenAiResponse {
 
 type ModelResponse = GeminiResponse & OpenAiResponse
 
+/**
+ * Content headers like the AI Relay IDE extension sends them (a known-good
+ * client of company gateways): any response type, JSON in UTF-8.
+ */
+export function requestHeaders(config: Pick<Config, 'AI_USER_AGENT'>): Record<string, string> {
+  return {
+    accept: '*/*',
+    'content-type': 'application/json; charset=utf-8',
+    ...(config.AI_USER_AGENT ? { 'user-agent': config.AI_USER_AGENT } : {}),
+  }
+}
+
+/** The exact request body for a conversation (also used by the check's diagnostics). */
+export function requestBody(format: 'vertex' | 'gemini' | 'openai', model: string, system: string | null, turns: ChatTurn[]) {
+  if (format === 'openai') {
+    return { model, messages: [...(system ? [{ role: 'system', content: system }] : []), ...turns], temperature: 0.2, max_tokens: 2048 }
+  }
+  return {
+    ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+    contents: turns.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.content }] })),
+    // Apigee gateways may validate the body and reject unknown fields: Vertex gets only the basics.
+    ...(format === 'gemini' ? { generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } } : {}),
+  }
+}
+
 /** A JSON response, or a server-sent-events stream (streamGenerateContent?alt=sse) as its chunks. */
 export function parseResponse({ text, contentType }: { text: string; contentType: string }): ModelResponse | ModelResponse[] {
   if (contentType.includes('text/event-stream') || /^\s*data:/.test(text)) {
@@ -151,25 +176,13 @@ export function parseResponse({ text, contentType }: { text: string; contentType
 export async function askModel(config: Config, system: string, turns: ChatTurn[]): Promise<string> {
   const s = aiSettings(config)
   const geminiLike = s.format !== 'openai'
-  const body = geminiLike
-    ? {
-        systemInstruction: { parts: [{ text: system }] },
-        contents: turns.map((t) => ({ role: t.role === 'assistant' ? 'model' : 'user', parts: [{ text: t.content }] })),
-        // Apigee gateways may validate the body and reject unknown fields: Vertex gets only the basics.
-        ...(s.format === 'gemini' ? { generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } } : {}),
-      }
-    : {
-        model: s.model,
-        messages: [{ role: 'system', content: system }, ...turns],
-        temperature: 0.2,
-        max_tokens: 2048,
-      }
+  const body = requestBody(s.format, s.model, system, turns)
 
   const send = async (fresh: boolean) =>
     parseResponse(
       await outboundText(s.url, SERVICE, {
         method: 'POST',
-        headers: { ...s.headers(s.usesToken ? await aiToken(config, s.ca, { fresh }) : ''), 'content-type': 'application/json' },
+        headers: { ...requestHeaders(config), ...s.headers(s.usesToken ? await aiToken(config, s.ca, { fresh }) : '') },
         body: JSON.stringify(body),
         ca: s.ca,
         timeoutMs: TIMEOUT_MS,

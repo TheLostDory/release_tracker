@@ -9,6 +9,7 @@ import { loadConfig } from '../config.js'
 import { inspectCertificates } from '../integrations/certificate.js'
 import { aiSettings, askModel, TOKEN_SERVICE } from './client.js'
 import { probeGateway } from './probe.js'
+import { tryVariants } from './variants.js'
 
 // Try other models without editing ai.env:  check.js --model gemini-2.5-flash,gemini-3.7-flash
 const modelArg = process.argv.indexOf('--model')
@@ -31,6 +32,7 @@ try {
   console.log(
     [
       `Model:     ${s.model}`,
+      `Agent:     ${config.AI_USER_AGENT ?? '(default)'}`,
       `Format:    ${s.format}`,
       `URL:       ${s.url}`,
       `Headers:   ${s.headerNames.join(', ') || '(none)'}`,
@@ -56,6 +58,24 @@ try {
       console.error(`AI_CA_CERT=${root.pem.trim().replaceAll('\n', '\\n')}`)
     } catch (inspectErr) {
       console.error(`(Couldn't read the certificate: ${(inspectErr as Error).message})`)
+    }
+  }
+  // Server error for a request another client gets through: find which difference matters.
+  if (/returned HTTP 5\d\d/.test(message) && !message.startsWith(TOKEN_SERVICE)) {
+    console.error('\nTrying the request the ways the AI Relay extension differs (one tiny request each)…\n')
+    try {
+      const results = await tryVariants(config)
+      for (const r of results) console.error(`  ${r.ok ? '✔' : '✘'} ${r.name}${r.ok ? '' : `: ${r.message}`}`)
+      const hit = results.find((r) => r.ok)
+      if (hit) {
+        console.error(`\nThat one works. Add to ai.env, then: docker compose up -d\n  ${hit.fix}`)
+      } else {
+        console.error(
+          '\nNone of them helped: compare the model with the extension (/model in its chat), or ask the gateway team what changed (time of the error, model, "ErrorResponseCode").',
+        )
+      }
+    } catch (variantErr) {
+      console.error(`(Couldn't try the variants: ${(variantErr as Error).message})`)
     }
   }
   // Wrong path: try the usual layouts under AI_BASE_URL to find the right one.

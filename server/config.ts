@@ -67,6 +67,8 @@ const schema = z.object({
   AI_HEADERS: optional(z.string()),
   /** Company CA certificate (PEM; \\n escapes allowed) for the gateway, if it needs one. */
   AI_CA_CERT: optional(z.string()),
+  /** User-Agent for AI requests, for gateways that only accept known clients (e.g. "Java/17"). */
+  AI_USER_AGENT: optional(z.string().max(200)),
 })
 
 export type Config = z.infer<typeof schema>
