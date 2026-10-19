@@ -219,7 +219,8 @@ export async function askModel(config: Config, system: string, turns: ChatTurn[]
           err.message.startsWith(TOKEN_SERVICE) ? 'Check AI_TOKEN_URL.' : 'Check AI_BASE_URL, AI_PATH, AI_PROJECT_ID, AI_LOCATION and AI_MODEL.',
         )
       // The full response stays in the server log for diagnosis (never the token: it's only in our request).
-      console.warn(`[ai] ${message}${err.body ? `\n[ai] response body: ${err.body}` : ''}`)
+      // On one line (gateways often pretty-print JSON), so the log line holds all of it.
+      console.warn(`[ai] ${message}${err.body ? `\n[ai] response body: ${err.body.replace(/\s*\n\s*/g, ' ').trim()}` : ''}`)
       throw new HttpError(502, message, 'ai_error')
     }
     throw err
