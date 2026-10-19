@@ -135,6 +135,7 @@ export async function fakeAi() {
   // Apigee-style OAuth: client credentials (Basic header or form fields) → bearer token.
   let issued = 0
   let validToken = ''
+  let flaky = 0
   const tokenRequests: Record<string, string>[] = []
   app.post('/oauth/token', express.urlencoded({ extended: false }), (req, res) => {
     tokenRequests.push({ ...req.body })
@@ -149,6 +150,16 @@ export async function fakeAi() {
     requests.push({ path: req.path, body: req.body, headers: { authorization: req.get('authorization') } })
     if (req.get('authorization') !== `Bearer ${validToken}`) return void res.status(401).json({ error: { message: 'Invalid access token' } })
     if (req.body.generationConfig) return void res.status(400).json({ error: { message: 'Unknown field generationConfig' } })
+    if (req.params.model === 'flaky:streamGenerateContent' && flaky++ % 2 === 0) {
+      return void res.status(500).json({ error: 'ErrorResponseCode', message: 'Backend temporarily unavailable' })
+    }
+    if (req.params.model?.startsWith('broken:')) {
+      return void res.status(500).json({ fault: { faultstring: 'Quota exceeded', detail: { errorcode: 'policies.ratelimit.QuotaViolation' } } })
+    }
+    if (req.params.model === 'flaky:streamGenerateContent') {
+      res.type('text/event-stream')
+      return void res.send(`data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Second try worked.' }] } }] })}\n\n`)
+    }
     if (req.params.model === 'gemini-2.5-pro:generateContent') {
       return void res.json({ candidates: [{ content: { role: 'model', parts: [{ text: 'thinking…', thought: true }, { text: 'Vertex says hi.' }] } }] })
     }

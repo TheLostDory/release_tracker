@@ -157,7 +157,7 @@ describe.skipIf(remote)('assistant', () => {
 
       const bad = await ask(await as(badClient), 'hello')
       expect(bad.status).toBe(502)
-      expect(bad.body.error.message).toBe('The AI login (AI_TOKEN_URL) rejected the credentials (HTTP 401). Message: Client credentials are invalid')
+      expect(bad.body.error.message).toBe('The AI login (AI_TOKEN_URL) rejected the credentials (HTTP 401). Message: Client credentials are invalid · invalid_client')
 
       // Gateway URL that already is the whole endpoint (placeholders allowed): used as is.
       const full = await startServer({
@@ -169,6 +169,18 @@ describe.skipIf(remote)('assistant', () => {
         expect(ai.requests.at(-1)!.path).toBe(`/v1/projects/${AI.project}/locations/europe-west1/publishers/google/models/gemini-2.5-pro:generateContent`)
       } finally {
         await full.stop()
+      }
+
+      // A gateway 500 is retried once; a persistent one is reported with all its details.
+      const flaky = await startServer({ ...vertexEnv, AI_MODEL: 'flaky' })
+      const broken = await startServer({ ...vertexEnv, AI_MODEL: 'broken' })
+      try {
+        expect((await ask(await as(flaky), 'hello')).body.answer).toBe('Second try worked.')
+        const failed = await ask(await as(broken), 'hello')
+        expect(failed.status).toBe(502)
+        expect(failed.body.error.message).toBe('The AI service returned HTTP 500. Message: Quota exceeded · policies.ratelimit.QuotaViolation')
+      } finally {
+        await Promise.all([flaky.stop(), broken.stop()])
       }
 
       const missing = await ask(await as(noProject), 'hello')

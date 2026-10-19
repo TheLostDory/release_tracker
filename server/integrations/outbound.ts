@@ -59,9 +59,12 @@ export function normalizeCaCert(raw: string): string {
 
 export class OutboundError extends Error {
   readonly status: number | undefined
-  constructor(message: string, status?: number) {
+  /** The service's raw error response (first 2000 characters), for the server log. */
+  readonly body: string | undefined
+  constructor(message: string, status?: number, body?: string) {
     super(message)
     this.status = status
+    this.body = body
   }
 }
 
@@ -82,33 +85,58 @@ export async function outbound(url: string, service: string, req: OutboundReques
   if (res.status >= 300 && res.status < 400) {
     throw new OutboundError(`${service} redirected to ${res.headers.get('location') ?? 'another address'}. Use the final URL.`, res.status)
   }
-  const detail = !res.ok && req.errorDetail ? await errorMessage(res) : ''
-  if (res.status === 401 || res.status === 403) {
-    throw new OutboundError(`${service} rejected the credentials (HTTP ${res.status}).${detail}`, res.status)
+  let detail = ''
+  let body: string | undefined
+  if (!res.ok && req.errorDetail) {
+    body = await res.text().then((t) => t.slice(0, 20_000)).catch(() => '')
+    const described = body ? describeErrorBody(body) : ''
+    detail = described ? ` Message: ${described}` : ''
+    body = body.slice(0, 2000)
   }
-  if (res.status === 404) throw new OutboundError(`${service}: not found (HTTP 404). Check the URL, key or job path.${detail}`, 404)
-  if (!res.ok && res.status !== 201) throw new OutboundError(`${service} returned HTTP ${res.status}.${detail}`, res.status)
+  if (res.status === 401 || res.status === 403) {
+    throw new OutboundError(`${service} rejected the credentials (HTTP ${res.status}).${detail}`, res.status, body)
+  }
+  if (res.status === 404) throw new OutboundError(`${service}: not found (HTTP 404). Check the URL, key or job path.${detail}`, 404, body)
+  if (!res.ok && res.status !== 201) throw new OutboundError(`${service} returned HTTP ${res.status}.${detail}`, res.status, body)
   return res
 }
 
-/** " Message: …" from a JSON error body ({error:{message}}, {message}…), or "". */
-async function errorMessage(res: Response): Promise<string> {
+/**
+ * The useful part of an error response. Services nest it differently:
+ * {error: {message, status}}, {error, error_description} (OAuth), Apigee's
+ * {fault: {faultstring, detail: {errorcode}}}, Google's [{error: …}], or a
+ * code plus a message side by side. Every informative field is kept, so a
+ * generic code ("ErrorResponseCode") never hides the actual reason.
+ */
+export function describeErrorBody(text: string): string {
+  let parsed: unknown
   try {
-    const text = (await res.text()).slice(0, 20_000)
-    let msg = text
-    try {
-      const j = JSON.parse(text) as { error?: { message?: string } | string; error_description?: string; message?: string; detail?: string }
-      // OAuth servers: {error: "invalid_client", error_description: "…"}.
-      msg = j.error_description ?? (typeof j.error === 'string' ? j.error : j.error?.message) ?? j.message ?? j.detail ?? text
-    } catch {
-      // Not JSON. For HTML error pages, the title (or the text without tags).
-      if (/<html|<!doctype/i.test(text)) msg = /<title>([^<]*)<\/title>/i.exec(text)?.[1] ?? text.replace(/<[^>]*>/g, ' ')
-    }
-    msg = String(msg).replace(/\s+/g, ' ').trim().slice(0, 300)
-    return msg ? ` Message: ${msg}` : ''
+    parsed = JSON.parse(text)
   } catch {
-    return ''
+    // Not JSON. For HTML error pages, the title (or the text without tags).
+    const plain = /<html|<!doctype/i.test(text) ? (/<title>([^<]*)<\/title>/i.exec(text)?.[1] ?? text.replace(/<[^>]*>/g, ' ')) : text
+    return plain.replace(/\s+/g, ' ').trim().slice(0, 300)
   }
+  const found: string[] = []
+  const add = (v: unknown) => {
+    if (typeof v === 'string' || typeof v === 'number') {
+      const t = String(v).replace(/\s+/g, ' ').trim()
+      if (t && !found.includes(t)) found.push(t)
+    }
+  }
+  const visit = (o: unknown, depth: number) => {
+    if (depth > 4 || o === null || typeof o !== 'object') return
+    if (Array.isArray(o)) return o.slice(0, 3).forEach((x) => visit(x, depth + 1))
+    const r = o as Record<string, unknown>
+    for (const key of ['error_description', 'message', 'faultstring', 'error', 'errorcode', 'errorCode', 'status', 'code', 'reason', 'detail', 'details', 'title']) {
+      const v = r[key]
+      if (v && typeof v === 'object') visit(v, depth + 1)
+      else if (!(key === 'code' && typeof v === 'number' && v >= 100 && v < 600)) add(v) // the HTTP status is already in the message
+    }
+    if (r.fault) visit(r.fault, depth + 1)
+  }
+  visit(parsed, 0)
+  return (found.length ? found.join(' · ') : text.replace(/\s+/g, ' ').trim()).slice(0, 400)
 }
 
 /** Turns low-level fetch failures into a reason an admin can act on. */

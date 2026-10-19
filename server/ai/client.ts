@@ -183,9 +183,18 @@ export async function askModel(config: Config, system: string, turns: ChatTurn[]
     try {
       res = await send(false)
     } catch (err) {
-      // A cached token may have been revoked or expired early: get a new one, once.
-      if (!(s.usesToken && err instanceof OutboundError && err.status === 401 && err.message.startsWith(SERVICE))) throw err
-      res = await send(true)
+      if (!(err instanceof OutboundError) || !err.message.startsWith(SERVICE)) throw err
+      if (s.usesToken && err.status === 401) {
+        // A cached token may have been revoked or expired early: get a new one, once.
+        res = await send(true)
+      } else if (err.status !== undefined && err.status >= 500) {
+        // Gateways fail now and then (500/502/503/504): try once more after a moment.
+        console.warn(`[ai] ${err.message} (retrying once)`)
+        await new Promise((r) => setTimeout(r, 1500))
+        res = await send(false)
+      } else {
+        throw err
+      }
     }
     if (geminiLike) {
       // One response, or the chunks of a streamed one, each with part of the text.
@@ -209,7 +218,8 @@ export async function askModel(config: Config, system: string, turns: ChatTurn[]
           'Check the URL, key or job path.',
           err.message.startsWith(TOKEN_SERVICE) ? 'Check AI_TOKEN_URL.' : 'Check AI_BASE_URL, AI_PATH, AI_PROJECT_ID, AI_LOCATION and AI_MODEL.',
         )
-      console.warn(`[ai] ${message}`)
+      // The full response stays in the server log for diagnosis (never the token: it's only in our request).
+      console.warn(`[ai] ${message}${err.body ? `\n[ai] response body: ${err.body}` : ''}`)
       throw new HttpError(502, message, 'ai_error')
     }
     throw err
