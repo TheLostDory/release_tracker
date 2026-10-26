@@ -107,6 +107,29 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
           </div>
         </Block>
 
+        <Block title="Follow Jira" description="Checked every 10 minutes for projects connected to Jira.">
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-foreground"
+                checked={s.jiraSync.syncDates}
+                onChange={(e) => set('jiraSync', { ...s.jiraSync, syncDates: e.target.checked })}
+              />
+              Target dates (and renamed versions) follow the linked Jira versions
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-foreground"
+                checked={s.jiraSync.importVersions}
+                onChange={(e) => set('jiraSync', { ...s.jiraSync, importVersions: e.target.checked })}
+              />
+              New unreleased Jira versions become releases (versions more than a month overdue are skipped)
+            </label>
+          </div>
+        </Block>
+
         <Block
           title="Email drafts"
           description="RC email, RC escalation email and Release email get a “Draft email” button, written from the release’s data. Default recipients (separate with ; or ,):"

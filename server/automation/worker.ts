@@ -163,7 +163,74 @@ export async function checkAutoComplete(db: Db, config: Config, projectId?: stri
   return done
 }
 
-/** Runs the automation tasks: Jenkins starts every 20 s; step checks every 5 minutes. */
+interface JiraTarget {
+  project_id: string
+  import_versions: boolean
+  sync_dates: boolean
+  integration_id: string
+  base_url: string
+  auth_type: JiraAuth
+  username: string | null
+  secret_encrypted: string
+  ca_cert: string | null
+  settings: { projectKey?: string }
+}
+
+const MAX_IMPORTS_PER_RUN = 20
+/** Unreleased versions this far past their date are left alone (stale). */
+const IMPORT_STALE_DAYS = 30
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10)
+const addDays = (day: string, n: number) => {
+  const d = new Date(`${day}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return isoDay(d)
+}
+
+/** Releases follow their Jira versions; new unreleased versions become releases. */
+export async function syncJira(db: Db, config: Config, projectId?: string, today = isoDay(new Date())): Promise<{ imported: number; updated: number }> {
+  const result = { imported: 0, updated: 0 }
+  if (!config.ENCRYPTION_KEY) return result
+  const { rows } = await db.query<JiraTarget>('select * from jira_sync_targets()')
+  for (const t of rows.filter((x) => !projectId || x.project_id === projectId)) {
+    if (!t.settings.projectKey) continue
+    try {
+      const conn: JiraConnection = { baseUrl: t.base_url, authType: t.auth_type, username: t.username, secret: decrypt(t.secret_encrypted, config.ENCRYPTION_KEY), ca: t.ca_cert }
+      const versions = await jiraVersions(conn, t.settings.projectKey!)
+      const linked = (await db.query<{ id: string; jira_version_id: string }>('select id, jira_version_id from jira_sync_releases($1)', [t.project_id])).rows
+      const byVersion = new Map(linked.map((r) => [r.jira_version_id, r.id]))
+
+      if (t.sync_dates) {
+        for (const v of versions) {
+          const releaseId = byVersion.get(v.id)
+          if (!releaseId) continue
+          const changes = (await db.query<{ c: string[] }>('select jira_sync_release($1, $2, $3) as c', [releaseId, v.name, v.releaseDate])).rows[0]?.c ?? []
+          if (changes.length) result.updated++
+        }
+      }
+      if (t.import_versions) {
+        const fresh = versions.filter(
+          (v) => !v.released && !v.archived && !byVersion.has(v.id) && (!v.releaseDate || v.releaseDate >= addDays(today, -IMPORT_STALE_DAYS)),
+        )
+        for (const v of fresh.slice(0, MAX_IMPORTS_PER_RUN)) {
+          const id = (await db.query<{ id: string | null }>('select jira_import_version($1, $2, $3, $4, $5) as id', [
+            t.project_id,
+            v.id,
+            v.name,
+            v.releaseDate ?? addDays(today, 14),
+            v.description,
+          ])).rows[0]?.id
+          if (id) result.imported++
+        }
+      }
+    } catch (err) {
+      console.warn(`[automation] Jira sync for project ${t.project_id}: ${(err as Error).message}`)
+    }
+  }
+  return result
+}
+
+/** Runs the automation tasks: Jenkins starts every 20 s; step checks every 5 minutes; Jira sync every 10. */
 export function startAutomationWorker(db: Db, config: Config): () => void {
   let running = false
   let ticks = 0
@@ -172,6 +239,7 @@ export function startAutomationWorker(db: Db, config: Config): () => void {
     running = true
     try {
       await processJenkinsStarts(db, config)
+      if (ticks % 30 === 0) await syncJira(db, config)
       if (ticks % 15 === 0) await checkAutoComplete(db, config)
       ticks++
     } catch (err) {

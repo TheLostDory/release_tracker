@@ -119,7 +119,7 @@ export async function fakeJira({ https = false } = {}) {
     const startAt = Number(req.query.startAt ?? 0)
     res.json({ issues: all.slice(startAt, startAt + 100), total: all.length, startAt, maxResults: 100 })
   })
-  return { ...(await listen(app, https)), searches }
+  return { ...(await listen(app, https)), searches, versions }
 }
 
 export const AI = { key: 'ai-app-key', secret: 'ai-app-secret', clientId: 'rt-client', clientSecret: 'rt-client-secret', project: 'acme-gen-ai' }
