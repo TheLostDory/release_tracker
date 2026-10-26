@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { ReportType } from '@/types/domain'
 import type { FollowedBuild, RunPurpose } from './api'
+import { JenkinsStarts } from '@/features/automation/jenkins-starts'
 import { FollowedCard, FollowForm } from './followed-builds-section'
 import { useConnected, useFollowedBuilds } from './queries'
 
@@ -24,11 +25,13 @@ export function AutomatedJobsPanel({
   projectId,
   reportTypes,
   canEdit,
+  canManage = false,
 }: {
   releaseId: string
   projectId: string
   reportTypes: readonly ReportType[]
   canEdit: boolean
+  canManage?: boolean
 }) {
   const { jenkins } = useConnected(projectId)
   const { data: runs = [], isLoading } = useFollowedBuilds(releaseId, !!jenkins)
@@ -51,10 +54,11 @@ export function AutomatedJobsPanel({
       <div>
         <h4 className="text-xs font-medium">Jenkins jobs</h4>
         <p className="text-xs font-normal text-muted-foreground">
-          Paste the link of each running job. This step completes when they all finish (passed or unstable) and is blocked if one fails
+          Start the jobs from here, or paste the link of each running job. This step completes when they all finish (passed or unstable) and is blocked if one fails
           or is aborted; a finished job fills its report link.
         </p>
       </div>
+      <JenkinsStarts releaseId={releaseId} projectId={projectId} canEdit={canEdit} canManage={canManage} />
       <ul className="space-y-2">
         {slots.map((slot) => (
           <Slot key={slot.purpose} releaseId={releaseId} label={slot.label} purpose={slot.purpose} run={runs.find((r) => r.purpose === slot.purpose)} canEdit={canEdit} />

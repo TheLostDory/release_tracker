@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { invalidateRuns } from '@/features/integrations/queries'
 import { releaseKeys } from '@/features/releases/queries'
 import * as api from './api'
 
@@ -27,4 +28,41 @@ export function usePlanDates(releaseId: string) {
       void qc.invalidateQueries({ queryKey: releaseKeys.lists() })
     },
   })
+}
+
+// --- Starting the automated Jenkins jobs ---------------------------------------------------
+
+export const startKeys = (releaseId: string) => ['jenkins-starts', releaseId] as const
+
+/** Pending starts; checked every 5 s while any is still on its way (then the runs list refreshes). */
+export function useJenkinsStarts(releaseId: string, enabled: boolean) {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: startKeys(releaseId),
+    queryFn: async () => {
+      const before = qc.getQueryData<api.JenkinsStart[]>(startKeys(releaseId))
+      const starts = await api.listJenkinsStarts(releaseId)
+      // A start that disappeared became a run.
+      if (before && before.some((b) => !starts.some((s) => s.id === b.id))) invalidateRuns(qc, releaseId)
+      return starts
+    },
+    enabled,
+    refetchInterval: (q) => (q.state.data?.some((s) => s.state !== 'failed') ? 5_000 : false),
+  })
+}
+
+export function useStartJenkinsJobs(releaseId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.startJenkinsJobs(releaseId),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: startKeys(releaseId) })
+      invalidateRuns(qc, releaseId)
+    },
+  })
+}
+
+export function useDismissJenkinsStart(releaseId: string) {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: api.dismissJenkinsStart, onSuccess: () => void qc.invalidateQueries({ queryKey: startKeys(releaseId) }) })
 }

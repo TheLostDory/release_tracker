@@ -7,6 +7,7 @@ import { SettingsSection } from '@/features/projects/settings/settings-section'
 import { toUserMessage } from '@/lib/errors'
 import { STEP_BY_TYPE } from '@/lib/workflow'
 import type { AutomationSettings, EmailStep } from './api'
+import { JobsEditor } from './jobs-editor'
 import { useAutomation, useSaveAutomation } from './queries'
 
 /** Project settings → Automation: what the tracker does by itself. */
@@ -65,6 +66,22 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
         </Block>
 
         <Block
+          title="Start Jenkins jobs"
+          description="The Automated jobs step gets a “Start jobs” button that starts these jobs and follows the runs they become (no links to paste). Parameters can use {{version}} and {{name}}."
+        >
+          <JobsEditor jobs={s.jenkins.jobs} onChange={(jobs) => set('jenkins', { ...s.jenkins, jobs })} />
+          <label className="mt-2 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="size-4 accent-foreground"
+              checked={s.jenkins.autoStart}
+              onChange={(e) => set('jenkins', { ...s.jenkins, autoStart: e.target.checked })}
+            />
+            Start them by themselves when RC creation completes
+          </label>
+        </Block>
+
+        <Block
           title="Email drafts"
           description="RC email, RC escalation email and Release email get a “Draft email” button, written from the release’s data. Default recipients (separate with ; or ,):"
         >
@@ -98,7 +115,8 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
             size="sm"
             disabled={!dirty || save.isPending}
             onClick={() =>
-              save.mutate(s, {
+              // Rows left without a job path are dropped rather than refused.
+              save.mutate({ ...s, jenkins: { ...s.jenkins, jobs: s.jenkins.jobs.filter((j) => j.jobPath.trim()) } }, {
                 onSuccess: () => toast.success('Automation saved'),
                 onError: (err) => toast.error(toUserMessage(err)),
               })

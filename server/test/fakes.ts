@@ -264,6 +264,21 @@ export async function fakeJenkins() {
     next()
   })
   app.get('/api/json', (_req, res) => void res.json({ mode: 'NORMAL' }))
+  const queue: { job: string; number: number | null; cancelled?: boolean }[] = []
+  let holdQueue = false
+  const startQueued = (id: number) => {
+    const item = queue[id - 1]!
+    const builds = jobs.get(item.job)!
+    item.number = (builds.at(-1)?.number ?? 0) + 1
+    builds.push({ number: item.number, result: null, building: true })
+  }
+  app.get('/queue/item/:id/api/json', (req, res) => {
+    const item = queue[Number(req.params.id) - 1]
+    if (!item) return void res.status(404).end()
+    if (item.cancelled) return void res.json({ cancelled: true, executable: null })
+    if (item.number === null) return void res.json({ why: 'Waiting for next available executor', executable: null })
+    res.json({ executable: { number: item.number } })
+  })
   // One build: /job/a/job/b/42/api/json (or lastBuild) and its console log.
   app.get(/^((?:\/job\/[^/]+)+)\/(\d+|lastBuild)\/(api\/json|logText\/progressiveHtml)$/, (req, res) => {
     const [, jobPart, which, what] = /^((?:\/job\/[^/]+)+)\/(\d+|lastBuild)\/(api\/json|logText\/progressiveHtml)$/.exec(req.path)!
@@ -308,14 +323,28 @@ export async function fakeJenkins() {
     }
     if (req.method !== 'POST') return void res.status(405).end()
     triggered.push({ job: path, params: Object.fromEntries(new URLSearchParams(req.url.split('?')[1] ?? '')) })
-    builds.push({ number: (builds.at(-1)?.number ?? 0) + 1, result: null, building: true })
-    res.status(201).set('Location', `${base}/queue/1/`).end()
+    // Like Jenkins: the build waits in the queue; the queue item says which build it became.
+    const id = queue.length + 1
+    queue.push({ job: path, number: null })
+    if (!holdQueue) startQueued(id)
+    res.status(201).set('Location', `${req.protocol}://${req.get('host')}/queue/item/${id}/`).end()
   })
   const server = await listen(app)
   return {
     ...server,
     jobs,
     triggered,
+    /** Keep new builds waiting in the queue until released. */
+    holdQueue(hold: boolean) {
+      holdQueue = hold
+    },
+    /** Start every waiting queue item. */
+    releaseQueue() {
+      queue.forEach((item, i) => item.number === null && !item.cancelled && startQueued(i + 1))
+    },
+    cancelQueued() {
+      queue.forEach((item) => item.number === null && (item.cancelled = true))
+    },
     /** Finish the newest build of a job with a result. */
     finish(job: string, result: string) {
       const b = jobs.get(job)!.at(-1)!

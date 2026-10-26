@@ -41,7 +41,7 @@ interface Props {
   /** Viewers see everything but can't change it. */
   readOnly?: boolean
   /** For the Automated jobs step's Jenkins runs. */
-  release?: { id: string; projectId: string; reportTypes: readonly ReportType[] }
+  release?: { id: string; projectId: string; reportTypes: readonly ReportType[]; canManage?: boolean }
 }
 
 export function TaskList({ tasks, current, onUpdate, guard, readOnly = false, release }: Props) {
@@ -205,7 +205,7 @@ export function TaskList({ tasks, current, onUpdate, guard, readOnly = false, re
                     <TableCell colSpan={5} className="pb-4">
                       {task.task_type === 'AUTOMATED_JOBS' && release && (
                         <div className="mb-3 whitespace-normal">
-                          <AutomatedJobsPanel releaseId={release.id} projectId={release.projectId} reportTypes={release.reportTypes} canEdit={!readOnly} />
+                          <AutomatedJobsPanel releaseId={release.id} projectId={release.projectId} reportTypes={release.reportTypes} canEdit={!readOnly} canManage={release.canManage} />
                         </div>
                       )}
                       <TaskDetails task={task} onUpdate={onUpdate} readOnly={readOnly} />

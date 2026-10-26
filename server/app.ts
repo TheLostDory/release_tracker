@@ -39,7 +39,7 @@ export function createApp({ db, config, events }: { db: Db; config: Config; even
   api.use(integrationRoutes(db, config))
   api.use(chatRoutes(db, config))
   api.use(codeCompareRoutes(db, config))
-  api.use(automationRoutes(db))
+  api.use(automationRoutes(db, config))
   api.use(emailRoutes(db, config))
   api.use(events.routes(db))
   api.use((_req, _res, next) => next(notFound('No such API endpoint.')))

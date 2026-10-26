@@ -30,3 +30,19 @@ export interface EmailDraft {
 }
 
 export const getEmailDraft = (releaseId: string, step: EmailStep) => api.get<EmailDraft>(`/releases/${releaseId}/emails/${step}`)
+
+/** A requested start of an automated Jenkins job, until it becomes a run. */
+export interface JenkinsStart {
+  id: string
+  purpose: JobPurpose
+  job_path: string
+  parameters: Record<string, string>
+  state: 'to_start' | 'queued' | 'failed'
+  last_error: string | null
+  created_at: string
+}
+
+export const listJenkinsStarts = (releaseId: string) => api.get<JenkinsStart[]>(`/releases/${releaseId}/jenkins/starts`)
+export const startJenkinsJobs = (releaseId: string) =>
+  api.post<{ queued: number; started: number; resolved: number; failed: number }>(`/releases/${releaseId}/jenkins/start`)
+export const dismissJenkinsStart = (id: string) => api.del(`/jenkins/starts/${id}`)

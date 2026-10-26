@@ -3,6 +3,7 @@ import { loadConfig } from './config.js'
 import { createPool } from './db/pool.js'
 import { startJenkinsPoller } from './integrations/poller.js'
 import { startNotifier } from './notifications/notifier.js'
+import { startAutomationWorker } from './automation/worker.js'
 import { ReleaseEvents } from './realtime.js'
 
 const config = loadConfig()
@@ -19,6 +20,9 @@ const stopPoller = startJenkinsPoller(db, config)
 // Teams: deliver queued notifications and daily summaries.
 const stopNotifier = startNotifier(db, config)
 
+// Automation: start requested Jenkins jobs and follow their runs.
+const stopAutomation = startAutomationWorker(db, config)
+
 // Housekeeping: drop expired sessions hourly.
 const sweep = setInterval(() => void db.query('select delete_expired_sessions()').catch(() => {}), 3600_000)
 
@@ -27,6 +31,7 @@ async function shutdown(signal: string) {
   clearInterval(sweep)
   stopPoller()
   stopNotifier()
+  stopAutomation()
   server.close()
   await events.stop()
   await db.end()

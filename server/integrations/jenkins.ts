@@ -93,12 +93,38 @@ export async function jenkinsBuilds(c: JenkinsConnection, jobPath: string, limit
   })
 }
 
-/** Starts a build. Parameters are sent only if any are given. */
-export async function jenkinsTrigger(c: JenkinsConnection, jobPath: string, parameters: Record<string, string>): Promise<void> {
+/**
+ * Starts a build. Parameters are sent only if any are given. Returns the
+ * queue item URL Jenkins gives back (to find the build it becomes), if any.
+ */
+export async function jenkinsTrigger(c: JenkinsConnection, jobPath: string, parameters: Record<string, string>): Promise<string | null> {
   const hasParams = Object.keys(parameters).length > 0
   const url = `${jobUrl(c, jobPath)}/${hasParams ? `buildWithParameters?${new URLSearchParams(parameters)}` : 'build'}`
-  const res = await outbound(url, SERVICE, { method: 'POST', headers: headers(c), ca: c.ca })
+  const res = await outbound(url, SERVICE, { method: 'POST', headers: headers(c), ca: c.ca, errorDetail: true })
   await res.text()
+  const location = res.headers.get('location')
+  return location && /\/queue\/item\/\d+\/?$/.test(location) ? location.replace(/\/?$/, '/') : null
+}
+
+export type QueueState = { state: 'waiting'; why: string | null } | { state: 'started'; number: number } | { state: 'cancelled' } | { state: 'gone' }
+
+/** What became of a queued build: still waiting, started (#n), cancelled, or forgotten by Jenkins. */
+export async function jenkinsQueueItem(c: JenkinsConnection, queueUrl: string): Promise<QueueState> {
+  // Only ask the connected Jenkins (the URL came from its Location header).
+  if (new URL(queueUrl).host !== new URL(c.baseUrl).host) throw new HttpError(422, 'Queue item is not on the connected Jenkins.', 'invalid')
+  try {
+    const q = await outboundJson<{ cancelled?: boolean; why?: string | null; executable?: { number?: number } | null }>(
+      `${queueUrl}api/json?tree=cancelled,why,executable[number]`,
+      SERVICE,
+      { headers: headers(c), ca: c.ca },
+    )
+    if (q.executable?.number) return { state: 'started', number: q.executable.number }
+    if (q.cancelled) return { state: 'cancelled' }
+    return { state: 'waiting', why: q.why ?? null }
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return { state: 'gone' }
+    throw err
+  }
 }
 
 /** Replaces {{version}} / {{name}} in parameter values. */
