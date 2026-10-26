@@ -1,12 +1,12 @@
 import type { Config } from '../config.js'
 import { decrypt } from '../crypto.js'
 import type { Db } from '../db/pool.js'
-import { jenkinsGetText, reportGetText, type JenkinsConnection } from '../integrations/jenkins.js'
+import { jenkinsGetText, reportGetPage, reportGetText, type JenkinsConnection } from '../integrations/jenkins.js'
 import type { JiraAuth, JiraConnection } from '../integrations/jira.js'
 import { OutboundError } from '../integrations/outbound.js'
 import { automationSettings } from './settings.js'
 import { findBugsForTests } from './test-failures.js'
-import { failedFromGaugeResult, failedFromScript, failedScenariosOnSpecPage, failedSpecLinks, inlineScripts, isGaugeReport, scriptSources, specCounts } from './gauge.js'
+import { failedFromGaugeResult, failedFromScript, failedScenariosOnSpecPage, failedSpecs, inlineScripts, isGaugeReport, scriptSources, specCounts } from './gauge.js'
 import { extractFailedTests, framedReport, reportLinksFromBuildPage, textOf } from './test-report.js'
 
 interface DueAnalysis {
@@ -83,22 +83,25 @@ export async function readFailedTests(jenkins: JenkinsConnection, url: string, h
     }
     const counts = specCounts(html, url)
     how.push(`The overview links ${counts.specs} spec page${counts.specs === 1 ? '' : 's'}, ${counts.failed} marked failed.`)
-    const specs = failedSpecLinks(html, url).slice(0, MAX_SPEC_PAGES)
+    const specs = failedSpecs(html, url).slice(0, MAX_SPEC_PAGES)
     if (specs.length) {
       const names: string[] = []
       for (const spec of specs) {
         let reason = ''
-        const page = await reportGetText(jenkins, spec).catch((err: unknown) => {
+        const got = await reportGetPage(jenkins, spec.url).catch((err: unknown) => {
           reason = (err as Error).message
-          return ''
+          return null
         })
-        const found = failedScenariosOnSpecPage(page)
+        const page = got?.text ?? ''
+        const found = failedScenariosOnSpecPage(page).map((n) => (n.includes(': ') ? n : `${spec.name}: ${n}`))
         const fallback = found.length ? found : extractFailedTests(page)
-        // A failed spec whose scenarios can't be told apart still counts, by its name.
-        const list = fallback.length ? fallback : [decodeURIComponent(spec.split('/').pop()!.replace(/\.html?$/i, '').replace(/[_-]+/g, ' '))]
+        // A failed spec whose scenarios can't be read still counts, by its name.
+        const list = fallback.length ? fallback : [spec.name]
         how.push(
-          `${decodeURIComponent(spec.split('/').slice(-2).join('/'))}: ${
-            page ? `${found.length} failed scenario${found.length === 1 ? '' : 's'} found${found.length ? '' : fallback.length ? ' by layout' : ', listed by its name'}` : `couldn't be read (${reason})`
+          `${spec.name}: ${
+            got
+              ? `${found.length} failed scenario${found.length === 1 ? '' : 's'} found${found.length ? '' : fallback.length ? ' by layout' : ', listed by the spec name'}${got.partial ? ` (page incomplete: ${got.partial})` : ''}`
+              : `couldn't be read (${reason}), listed by the spec name`
           }.`,
         )
         for (const n of list) if (!names.includes(n)) names.push(n)

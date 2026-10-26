@@ -266,6 +266,7 @@ export async function fakeJenkins() {
     ['qa/gauge-load', [{ number: 3, result: 'UNSTABLE', building: false }]],
     ['qa/gauge-latest', [{ number: 8, result: 'FAILURE', building: false }]],
     ['qa/gauge-spa', [{ number: 9, result: 'FAILURE', building: false }]],
+    ['qa/gauge-cut', [{ number: 4, result: 'FAILURE', building: false }]],
     // A parent job: each run starts the Load Test, Longevity and HIT jobs.
     ['release/rc-validation', []],
     ['platform/deploy', []],
@@ -357,6 +358,22 @@ export async function fakeJenkins() {
     '/job/qa/job/gauge-latest/HTML_20Report/index.html': gaugeIndex.replace(/failed/g, 'passed').replace('Login</a>', 'Login</a></li><li class="spec-name failed"><a href="specs/search.html">Search</a>'),
     '/job/qa/job/gauge-latest/HTML_20Report/specs/search.html': '<h1>Search</h1><div class="scenario-container failed"><h3>HIT-No bug yet</h3></div>',
   }
+  // Failed spec pages all named case.html, whose downloads get cut off (huge screenshots).
+  gaugePages['/job/qa/job/gauge-cut/4/HTML_20Report/index.html'] = `<html><head><title>Gauge Report</title></head><body><ul>
+    <a href="specs/login/case.html"><li class='spec-name passed'>Login spec</li></a>
+    <a href="specs/export/case.html"><li class='spec-name failed'>Export spec <span>12.5 s</span></li></a>
+    <a href="specs/search/case.html"><li class='spec-name failed'>Search spec</li></a></ul></body></html>`
+  app.get('/job/qa/job/gauge-cut/4/HTML_20Report/specs/export/case.html', (_req, res) => {
+    res.type('text/html')
+    res.write(`<h1>Export spec</h1><div class="scenario-container failed"><h3>CSV export</h3><img src="data:image/png;base64,`)
+    res.write('A'.repeat(256 * 1024))
+    setTimeout(() => res.socket?.destroy(), 50) // cut off mid-screenshot
+  })
+  app.get('/job/qa/job/gauge-cut/4/HTML_20Report/specs/search/case.html', (_req, res) => {
+    res.status(200).setHeader('content-type', 'text/html')
+    res.flushHeaders()
+    setTimeout(() => res.socket?.destroy(), 20) // nothing arrives
+  })
   // A Gauge report shown through Jenkins' resource address.
   gaugePages['/job/qa/job/gauge-spa/9/HTML_20Report/'] = `<html><body><iframe id="myframe" src="${resource.url}/static/t0k3n/index.html"></iframe></body></html>`
   app.get(/^\/job\/qa\/job\/gauge-/, (req, res, next) => {

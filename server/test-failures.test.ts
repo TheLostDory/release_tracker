@@ -154,4 +154,14 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
     const [a] = (await c.get(`/api/releases/${release.id}/test-analyses`)).body
     expect(a.result.failedTests.map((t: any) => `${t.name} → ${t.bugs.map((b: any) => b.key).join(',')}`)).toEqual(['Checkout: HIT-Checkout timeout → ABC-300'])
   })
+
+  it('keeps what arrived when a spec page download is cut off, and names specs from the overview', async () => {
+    const c = await owner()
+    const reportUrl = `${jenkins.url}/job/qa/job/gauge-cut/4/HTML_20Report/index.html`
+    const preview = (await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl })).body
+    expect(preview.failedTests).toEqual(['Export spec: CSV export', 'Search spec'])
+    const how = preview.how.join('\n')
+    expect(how).toMatch(/Export spec: 1 failed scenario found \(page incomplete: the connection closed after 0\.\d MB\)/)
+    expect(how).toMatch(/Search spec: couldn't be read \(.*\), listed by the spec name/)
+  })
 })

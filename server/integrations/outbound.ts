@@ -208,3 +208,37 @@ export function normalizeBaseUrl(raw: string): string {
   url.hash = ''
   return url.toString().replace(/\/+$/, '')
 }
+
+/**
+ * Like outboundText, but for big pages: reads up to `maxBytes` and stops
+ * there, and when the connection is cut partway keeps what arrived (if
+ * anything). `partial` says why the page may be incomplete.
+ */
+export async function outboundTextLenient(
+  url: string,
+  service: string,
+  req: OutboundRequest = {},
+): Promise<{ text: string; partial: string | null }> {
+  const res = await outbound(url, service, req)
+  const max = req.maxBytes ?? MAX_BYTES
+  const reader = res.body?.getReader()
+  if (!reader) return { text: await res.text(), partial: null }
+  const decoder = new TextDecoder()
+  let text = ''
+  let bytes = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return { text, partial: null }
+      bytes += value.byteLength
+      text += decoder.decode(value, { stream: true })
+      if (bytes >= max) {
+        await reader.cancel().catch(() => {})
+        return { text, partial: `stopped after ${Math.round(bytes / 1048576)} MB` }
+      }
+    }
+  } catch (err) {
+    if (bytes === 0) throw new OutboundError(`${service} ${describeNetworkError(err, url, req.timeoutMs)}`)
+    return { text, partial: `the connection closed after ${(bytes / 1048576).toFixed(1)} MB` }
+  }
+}

@@ -166,3 +166,25 @@ function matchingBrace(text: string, start: number): number {
   }
   return -1
 }
+
+/** Failed specs with their names as the overview shows them (falls back to the file's folder). */
+export function failedSpecs(indexHtml: string, indexUrl: string): { url: string; name: string }[] {
+  const names = new Map<string, string>()
+  for (const a of indexHtml.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    try {
+      const url = new URL(decodeEntities(a[1]!), indexUrl)
+      url.hash = ''
+      const text = textOf(a[2]!).replace(/\s+\d+(\.\d+)?\s*(ms|s|sec|m|min)?\s*$/i, '').trim()
+      if (text && !names.has(url.toString())) names.set(url.toString(), text)
+    } catch {
+      // not a link
+    }
+  }
+  return failedSpecLinks(indexHtml, indexUrl).map((url) => {
+    const parts = decodeURIComponent(new URL(url).pathname).split('/').filter(Boolean)
+    const file = parts.at(-1)!.replace(/\.html?$/i, '')
+    // "case.html" everywhere: the folder says more than the file.
+    const fallback = (/^(case|index|spec|test)$/i.test(file) && parts.length > 1 ? parts.at(-2)! : file).replace(/[_-]+/g, ' ')
+    return { url, name: names.get(url) || fallback }
+  })
+}

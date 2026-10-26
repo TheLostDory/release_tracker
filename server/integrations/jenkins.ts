@@ -1,5 +1,5 @@
 import { HttpError } from '../http/errors.js'
-import { outbound, outboundJson, outboundText } from './outbound.js'
+import { outbound, outboundJson, outboundText, outboundTextLenient } from './outbound.js'
 
 export interface JenkinsConnection {
   baseUrl: string
@@ -420,6 +420,23 @@ export async function jenkinsGetText(c: JenkinsConnection, url: string): Promise
 
 /** Report pages can embed screenshots (Gauge puts failure screenshots in the page). */
 const REPORT_MAX_BYTES = 60 * 1024 * 1024
+
+/**
+ * A big report page (e.g. a Gauge spec page with screenshots): read as far
+ * as possible; a page cut short is still returned, with the reason.
+ */
+export async function reportGetPage(c: JenkinsConnection, url: string): Promise<{ text: string; partial: string | null }> {
+  const target = new URL(url)
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') throw new HttpError(422, 'Use an http(s) link.', 'invalid')
+  const onJenkins = target.host === new URL(c.baseUrl).host
+  return outboundTextLenient(url, onJenkins ? SERVICE : 'The report server', {
+    headers: { ...(onJenkins ? headers(c) : {}), accept: 'text/html,*/*' },
+    ca: c.ca,
+    errorDetail: true,
+    maxBytes: REPORT_MAX_BYTES,
+    timeoutMs: 120_000,
+  })
+}
 
 /**
  * A report page: from Jenkins with its credentials, or — for reports Jenkins
