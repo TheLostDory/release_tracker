@@ -19,7 +19,7 @@ export interface Integration {
 
 /** Which notifications go to the project's Teams channel, and when the daily summary is sent. */
 export interface TeamsSettings {
-  events: { blocked: boolean; jenkins: boolean; daily: boolean }
+  events: { blocked: boolean; jenkins: boolean; daily: boolean; code?: boolean; dueSoon?: boolean; approval?: boolean }
   /** "HH:MM" in `timezone`. */
   dailyTime: string
   timezone: string

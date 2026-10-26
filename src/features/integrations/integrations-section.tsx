@@ -22,6 +22,7 @@ const DEFAULT_AUTH: Record<IntegrationKind, IntegrationAuth> = { JIRA: 'JIRA_CLO
 const TEAMS_EVENTS: { key: keyof TeamsSettings['events']; label: string; hint: string }[] = [
   { key: 'blocked', label: 'Blocked steps', hint: 'A step becomes blocked, with the reason.' },
   { key: 'jenkins', label: 'Jenkins jobs finished', hint: 'A Load Test, Longevity, HIT or other job finished, with its result.' },
+  { key: 'code', label: 'Code vs Jira differences', hint: 'When a release’s comparison finds more differences than before.' },
   { key: 'daily', label: 'Daily summary', hint: 'The dashboard’s Action required list, once a day.' },
 ]
 
@@ -265,7 +266,7 @@ function IntegrationForm({
   const [repos, setRepos] = useState((integration?.settings.repos ?? []).join('\n'))
   const [headTemplate, setHeadTemplate] = useState(integration?.settings.headTemplate ?? 'release/{{version}}')
   const [teams, setTeams] = useState<TeamsSettings>(() => ({
-    events: { blocked: true, jenkins: true, daily: true, ...integration?.settings.events },
+    events: { blocked: true, jenkins: true, daily: true, code: true, dueSoon: true, approval: true, ...integration?.settings.events },
     dailyTime: integration?.settings.dailyTime ?? '09:00',
     // Times are in the admin's time zone (the server runs in UTC).
     timezone: browserTimeZone(),
@@ -425,7 +426,7 @@ function IntegrationForm({
               <input
                 type="checkbox"
                 className="mt-0.5 size-4 accent-foreground"
-                checked={teams.events[e.key]}
+                checked={teams.events[e.key] ?? true}
                 onChange={(ev) => setTeams((t) => ({ ...t, events: { ...t.events, [e.key]: ev.target.checked } }))}
               />
               <span>

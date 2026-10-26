@@ -6,6 +6,8 @@ import { githubBranchExists, type GitHubConnection } from '../integrations/githu
 import { jenkinsBuildTree, jenkinsQueueItem, jenkinsTrigger, type JenkinsConnection } from '../integrations/jenkins.js'
 import { jiraVersions, type JiraAuth, type JiraConnection } from '../integrations/jira.js'
 import { OutboundError } from '../integrations/outbound.js'
+import type { IntegrationRow } from '../integrations/store.js'
+import { runComparison } from '../routes/code-compare.js'
 
 /**
  * Background automation (no signed-in user; only through database functions
@@ -230,7 +232,64 @@ export async function syncJira(db: Db, config: Config, projectId?: string, today
   return result
 }
 
-/** Runs the automation tasks: Jenkins starts every 20 s; step checks every 5 minutes; Jira sync every 10. */
+interface CodeTarget {
+  release_id: string
+  project_id: string
+  name: string
+  version: string
+  jira_version_id: string | null
+  jira_version_name: string | null
+  refs: { repo: string; base_ref: string; head_ref: string }[]
+  gh_id: string
+  gh_base_url: string
+  gh_secret: string
+  gh_ca: string | null
+  gh_settings: IntegrationRow['settings']
+  jira_id: string | null
+  jira_base_url: string | null
+  jira_auth: JiraAuth | null
+  jira_username: string | null
+  jira_secret: string | null
+  jira_ca: string | null
+  jira_settings: IntegrationRow['settings'] | null
+}
+
+/** Re-runs Code vs Jira for open releases (hourly per release); more differences → Teams. */
+export async function runBackgroundCodeChecks(db: Db, config: Config, projectId?: string): Promise<number> {
+  if (!config.ENCRYPTION_KEY) return 0
+  const key = config.ENCRYPTION_KEY
+  const { rows } = await db.query<CodeTarget>('select * from code_check_targets()')
+  let checked = 0
+  for (const t of rows.filter((x) => !projectId || x.project_id === projectId)) {
+    const row = (kind: 'GITHUB' | 'JIRA', id: string, base: string, ca: string | null, settings: IntegrationRow['settings'], auth: IntegrationRow['auth_type'], username: string | null): IntegrationRow => ({
+      id,
+      project_id: t.project_id,
+      kind,
+      auth_type: auth,
+      base_url: base,
+      username,
+      settings,
+      last_error: null,
+      last_checked_at: null,
+      ca_cert: ca,
+    })
+    try {
+      const gh = { row: row('GITHUB', t.gh_id, t.gh_base_url, t.gh_ca, t.gh_settings, 'GITHUB', null), secret: decrypt(t.gh_secret, key) }
+      const jira =
+        t.jira_id && t.jira_base_url && t.jira_secret
+          ? { row: row('JIRA', t.jira_id, t.jira_base_url, t.jira_ca, t.jira_settings ?? {}, t.jira_auth!, t.jira_username), secret: decrypt(t.jira_secret, key) }
+          : null
+      const { summary } = await runComparison({ release: { id: t.release_id, name: t.name, version: t.version, jira_version_id: t.jira_version_id, jira_version_name: t.jira_version_name }, refs: t.refs, gh, jira, fresh: true, lookups: false })
+      await db.query('select record_code_check($1, $2)', [t.release_id, JSON.stringify(summary)])
+      checked++
+    } catch (err) {
+      console.warn(`[automation] Code vs Jira for ${t.name}: ${(err as Error).message}`)
+    }
+  }
+  return checked
+}
+
+/** Runs the automation tasks: Jenkins starts every 20 s; step checks every 5 minutes; Jira sync every 10; Code vs Jira every 15 (each release hourly). */
 export function startAutomationWorker(db: Db, config: Config): () => void {
   let running = false
   let ticks = 0
@@ -241,6 +300,7 @@ export function startAutomationWorker(db: Db, config: Config): () => void {
       await processJenkinsStarts(db, config)
       if (ticks % 30 === 0) await syncJira(db, config)
       if (ticks % 15 === 0) await checkAutoComplete(db, config)
+      if (ticks % 45 === 0) await runBackgroundCodeChecks(db, config)
       ticks++
     } catch (err) {
       console.error('[automation] failed:', (err as Error).message)

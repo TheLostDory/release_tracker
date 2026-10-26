@@ -10,7 +10,7 @@ import { outbound } from './outbound.js'
 const SERVICE = 'Teams'
 
 export interface TeamsSettings {
-  events: { blocked: boolean; jenkins: boolean; daily: boolean }
+  events: { blocked: boolean; jenkins: boolean; daily: boolean; code?: boolean; dueSoon?: boolean; approval?: boolean }
   /** "HH:MM", in `timezone`. */
   dailyTime: string
   timezone: string

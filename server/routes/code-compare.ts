@@ -72,6 +72,87 @@ async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Prom
   return out
 }
 
+type Integration = { row: IntegrationRow; secret: string }
+
+/**
+ * Compares a release's RC (GitHub) with its Jira version. Used by the page
+ * (as the signed-in user) and by the background check (lookups off: only the
+ * counts are kept). Returns the full result and the counts to store.
+ */
+export async function runComparison(input: {
+  release: Pick<ReleaseRow, 'id' | 'name' | 'version' | 'jira_version_id' | 'jira_version_name'>
+  refs: { repo: string; base_ref: string; head_ref: string }[]
+  gh: Integration
+  jira: Integration | null
+  fresh: boolean
+  lookups: boolean
+}) {
+  const { release: r, refs, gh, jira, fresh } = input
+  const projectKey = jira?.row.settings.projectKey ?? null
+  const notes: string[] = []
+
+  // --- Code: commits in each RC, and the pull requests they came from ---------------
+  const conn = githubConnection(gh.row, gh.secret)
+  const repos = await mapLimited(refs, 2, (ref) => compareRepo(conn, gh.row, ref, projectKey, fresh))
+  const changes = repos.flatMap((x) => x.changes)
+  for (const x of repos) if (x.error) notes.push(`${x.repo}: ${x.error}`)
+
+  // --- Jira: the release's version ----------------------------------------------------
+  let issues: Awaited<ReturnType<typeof jiraVersionIssues>>['issues'] = []
+  let jiraInfo: { versionName: string; url: string; truncated: boolean } | null = null
+  if (!jira) notes.push('Jira is not connected, so only the code side is shown.')
+  else if (!r.jira_version_id) notes.push('This release is not linked to a Jira version. Link it on the release page to compare.')
+  else {
+    const key = `issues:${jira.row.id}:${r.jira_version_id}`
+    if (fresh) uncache(key)
+    const result = await cached(key, 60_000, () => jiraVersionIssues(jiraConnection(jira.row, jira.secret), r.jira_version_id!)).catch(asHttpError)
+    issues = result.issues
+    jiraInfo = {
+      versionName: r.jira_version_name ?? r.version,
+      url: `${jira.row.base_url}/projects/${projectKey}/versions/${r.jira_version_id}`,
+      truncated: result.truncated,
+    }
+  }
+
+  const comparison = compareWithJira(changes, jiraInfo ? issues : [])
+  // Issues merged but not in this version: where are they planned instead?
+  let codeOnly: Array<{ key: string; changes: Change[]; jira: JiraIssueVersions | null | 'unknown' }> = comparison.codeOnly.map((c) => ({
+    ...c,
+    jira: 'unknown' as const,
+  }))
+  if (input.lookups && jira && jiraInfo) {
+    const jc = jiraConnection(jira.row, jira.secret)
+    const lookups = codeOnly.slice(0, MAX_KEY_LOOKUPS)
+    const found = await mapLimited(lookups, 4, (c) =>
+      cached(`issue:${jira.row.id}:${c.key}`, 5 * 60_000, () => jiraIssueVersions(jc, c.key)).catch(() => 'unknown' as const),
+    )
+    codeOnly = codeOnly.map((c, i) => (i < found.length ? { ...c, jira: found[i]! } : c))
+    if (comparison.codeOnly.length > MAX_KEY_LOOKUPS) notes.push(`Only the first ${MAX_KEY_LOOKUPS} extra issues were looked up in Jira.`)
+  }
+
+  const repoErrors = repos.filter((x) => x.error).map((x) => `${x.repo}: ${x.error}`)
+  const summary = {
+    jiraOnly: comparison.jiraOnly.length,
+    jiraOnlyDone: comparison.jiraOnly.filter((i) => i.statusCategory === 'done').length,
+    codeOnly: codeOnly.length,
+    noKey: comparison.noKey.length,
+    matched: comparison.matched.length,
+    totalCommits: repos.reduce((n, x) => n + x.totalCommits, 0),
+    hasJira: !!jiraInfo,
+    error: repoErrors.length ? repoErrors.join('; ').slice(0, 1000) : null,
+  }
+  const result = {
+    release: { id: r.id, name: r.name, version: r.version },
+    jira: jiraInfo,
+    repos: repos.map(({ changes: _changes, ...x }) => x),
+    ...comparison,
+    codeOnly,
+    notes,
+    comparedAt: new Date().toISOString(),
+  }
+  return { result, summary }
+}
+
 export function codeCompareRoutes(db: Db, config: Config) {
   const router = Router()
 
@@ -154,73 +235,10 @@ export function codeCompareRoutes(db: Db, config: Config) {
       ).rows
       if (refs.length === 0) throw new HttpError(409, 'Choose the RC branch or tag to compare first.', 'not_configured')
       const jira = await optionalIntegration(tx, config, r.project_id, 'JIRA')
-      const projectKey = jira?.row.settings.projectKey ?? null
-      const notes: string[] = []
-
-      // --- Code: commits in each RC, and the pull requests they came from ---------------
-      const conn = githubConnection(gh.row, gh.secret)
-      const repos = await mapLimited(refs, 2, (ref) => compareRepo(conn, gh.row, ref, projectKey, fresh))
-      const changes = repos.flatMap((x) => x.changes)
-      for (const x of repos) if (x.error) notes.push(`${x.repo}: ${x.error}`)
-
-      // --- Jira: the release's version ----------------------------------------------------
-      let issues: Awaited<ReturnType<typeof jiraVersionIssues>>['issues'] = []
-      let jiraInfo: { versionName: string; url: string; truncated: boolean } | null = null
-      if (!jira) notes.push('Jira is not connected, so only the code side is shown.')
-      else if (!r.jira_version_id) notes.push('This release is not linked to a Jira version. Link it on the release page to compare.')
-      else {
-        const key = `issues:${jira.row.id}:${r.jira_version_id}`
-        if (fresh) uncache(key)
-        const result = await cached(key, 60_000, () => jiraVersionIssues(jiraConnection(jira.row, jira.secret), r.jira_version_id!)).catch(asHttpError)
-        issues = result.issues
-        jiraInfo = {
-          versionName: r.jira_version_name ?? r.version,
-          url: `${jira.row.base_url}/projects/${projectKey}/versions/${r.jira_version_id}`,
-          truncated: result.truncated,
-        }
-      }
-
-      const comparison = compareWithJira(changes, jiraInfo ? issues : [])
-      // Issues merged but not in this version: where are they planned instead?
-      let codeOnly: Array<{ key: string; changes: Change[]; jira: JiraIssueVersions | null | 'unknown' }> = comparison.codeOnly.map((c) => ({
-        ...c,
-        jira: 'unknown' as const,
-      }))
-      if (jira && jiraInfo) {
-        const jc = jiraConnection(jira.row, jira.secret)
-        const lookups = codeOnly.slice(0, MAX_KEY_LOOKUPS)
-        const found = await mapLimited(lookups, 4, (c) =>
-          cached(`issue:${jira.row.id}:${c.key}`, 5 * 60_000, () => jiraIssueVersions(jc, c.key)).catch(() => 'unknown' as const),
-        )
-        codeOnly = codeOnly.map((c, i) => (i < found.length ? { ...c, jira: found[i]! } : c))
-        if (comparison.codeOnly.length > MAX_KEY_LOOKUPS) notes.push(`Only the first ${MAX_KEY_LOOKUPS} extra issues were looked up in Jira.`)
-      }
-
-      // Latest result, for the releases list and the dashboard.
-      const repoErrors = repos.filter((x) => x.error).map((x) => `${x.repo}: ${x.error}`)
-      await tx.query('select record_code_check($1, $2)', [
-        r.id,
-        JSON.stringify({
-          jiraOnly: comparison.jiraOnly.length,
-          jiraOnlyDone: comparison.jiraOnly.filter((i) => i.statusCategory === 'done').length,
-          codeOnly: codeOnly.length,
-          noKey: comparison.noKey.length,
-          matched: comparison.matched.length,
-          totalCommits: repos.reduce((n, x) => n + x.totalCommits, 0),
-          hasJira: !!jiraInfo,
-          error: repoErrors.length ? repoErrors.join('; ').slice(0, 1000) : null,
-        }),
-      ])
-
-      return {
-        release: { id: r.id, name: r.name, version: r.version },
-        jira: jiraInfo,
-        repos: repos.map(({ changes: _changes, ...x }) => x),
-        ...comparison,
-        codeOnly,
-        notes,
-        comparedAt: new Date().toISOString(),
-      }
+      const { result, summary } = await runComparison({ release: r, refs, gh, jira, fresh, lookups: true })
+      // Latest result, for the releases list, the dashboard and Teams alerts.
+      await tx.query('select record_code_check($1, $2)', [r.id, JSON.stringify(summary)])
+      return result
     })
     res.json(data)
   })

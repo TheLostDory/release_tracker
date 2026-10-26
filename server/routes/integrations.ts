@@ -50,7 +50,15 @@ const saveBody = z.strictObject({
   /** Teams: which notifications, and when the daily summary goes out. */
   teams: z
     .strictObject({
-      events: z.strictObject({ blocked: z.boolean(), jenkins: z.boolean(), daily: z.boolean() }),
+      events: z.strictObject({
+        blocked: z.boolean(),
+        jenkins: z.boolean(),
+        daily: z.boolean(),
+        // Newer kinds: optional, so older clients keep working (on when missing).
+        code: z.boolean().optional(),
+        dueSoon: z.boolean().optional(),
+        approval: z.boolean().optional(),
+      }),
       dailyTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM'),
       timezone: z.string().max(64).refine((tz) => {
         try {

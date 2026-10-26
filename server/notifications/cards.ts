@@ -19,6 +19,12 @@ export type OutboxEvent =
   | { kind: 'blocked'; payload: { release: ReleaseRef; step: string; reason: string | null; by: string } }
   | { kind: 'jenkins'; payload: { release: ReleaseRef; description: string; result: string | null; url: string | null } }
   | { kind: 'daily'; payload: { card: TeamsCard; items: number } }
+  | {
+      kind: 'code'
+      payload: { release: ReleaseRef; differences: number; previous: number; jiraOnly: number; jiraOnlyDone: number; codeOnly: number; noKey: number }
+    }
+  | { kind: 'due_soon'; payload: { release: ReleaseRef; steps: { name: string; owner: string | null; due: string }[] } }
+  | { kind: 'approval'; payload: { release: ReleaseRef; due: string | null; target: string; openItems: string[] } }
 
 export type ReleaseEvent = Exclude<OutboxEvent, { kind: 'daily' }>
 
@@ -34,6 +40,25 @@ export function releaseCard(appUrl: string, release: ReleaseRef, events: Release
     if (e.kind === 'blocked') {
       const p = e.payload
       return `⛔ **${md(p.step)} blocked**${p.reason ? `: ${md(p.reason)}` : ''} (by ${md(p.by)})`
+    }
+    if (e.kind === 'code') {
+      const p = e.payload
+      const parts = [
+        p.jiraOnly && `${p.jiraOnly} in Jira not merged${p.jiraOnlyDone ? ` (${p.jiraOnlyDone} marked Done)` : ''}`,
+        p.codeOnly && `${p.codeOnly} merged not in the version`,
+        p.noKey && `${p.noKey} merged without an issue`,
+      ].filter(Boolean)
+      return `⚠️ **Code vs Jira: ${p.differences} difference${p.differences === 1 ? '' : 's'}** (was ${p.previous}): ${parts.join(', ')}`
+    }
+    if (e.kind === 'due_soon') {
+      return e.payload.steps.map((st) => `⏰ **${md(st.name)}** is due ${st.due}${st.owner ? ` (${md(st.owner)})` : ''}`).join('\n\n')
+    }
+    if (e.kind === 'approval') {
+      const p = e.payload
+      return [
+        `✍️ **Approval needed**${p.due ? ` by ${p.due}` : ''} to deploy on ${p.target}`,
+        ...p.openItems.map((i) => `• Still open: ${md(i)}`),
+      ].join('\n\n')
     }
     const icon = RESULT_ICON[String(e.payload.result ?? '')] ?? '🔔'
     return `${icon} ${md(String(e.payload.description).replace(/^Jenkins: /, 'Jenkins '))}`

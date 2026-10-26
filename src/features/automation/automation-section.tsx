@@ -131,6 +131,13 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
         </Block>
 
         <Block
+          title="Code vs Jira in the background"
+          enabled={s.codeCheck.background}
+          onToggle={(background) => set('codeCheck', { background })}
+          description="Releases with a comparison set up are re-checked every hour, so the releases list and the dashboard stay current; Teams is told when differences go up (if the Teams notification is on)."
+        />
+
+        <Block
           title="Email drafts"
           description="RC email, RC escalation email and Release email get a “Draft email” button, written from the release’s data. Default recipients (separate with ; or ,):"
         >
