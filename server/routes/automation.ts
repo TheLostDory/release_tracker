@@ -5,7 +5,7 @@ import { automationSchema, automationSettings } from '../automation/settings.js'
 import { processTestAnalyses, readFailedTests } from '../automation/test-analysis.js'
 import { framedReport } from '../automation/test-report.js'
 import { processJenkinsStarts } from '../automation/worker.js'
-import { jenkinsGetText } from '../integrations/jenkins.js'
+import { jenkinsGetText, reportGetText } from '../integrations/jenkins.js'
 import { asHttpError } from '../integrations/outbound.js'
 import { jenkinsConnection, loadIntegration } from '../integrations/store.js'
 import { z } from 'zod'
@@ -123,12 +123,14 @@ export function automationRoutes(db: Db, config: Config) {
       const jenkins = jenkinsConnection(j.row, j.secret)
       // Same reading as the analysis: into HTML Publisher's frame, Gauge reports, the project pattern.
       let url = body.reportUrl
+      if (new URL(url).host !== new URL(jenkins.baseUrl).host) throw new HttpError(422, 'Paste a link on the connected Jenkins.', 'invalid')
       let html = await jenkinsGetText(jenkins, url).catch(asHttpError)
       const frame = framedReport(html, url)
-      if (frame && new URL(frame).host === new URL(url).host) {
-        how.push(`The page shows the report in a frame: followed it to ${frame}.`)
+      if (frame) {
+        const elsewhere = new URL(frame).host !== new URL(url).host
+        how.push(`The page shows the report in a frame: followed it to ${frame}${elsewhere ? ' (Jenkins’ resource address, fetched without credentials)' : ''}.`)
         url = frame
-        html = await jenkinsGetText(jenkins, url).catch(asHttpError)
+        html = await reportGetText(jenkins, url).catch(asHttpError)
       }
       return readFailedTests(jenkins, url, html, body.pattern || null, how).catch(asHttpError)
     })

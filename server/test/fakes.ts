@@ -236,6 +236,20 @@ export interface FakeBuild {
 }
 
 export async function fakeJenkins() {
+  // Jenkins' "Resource Root URL": reports served from another address, by
+  // one-time links that need no login (and must not receive credentials).
+  const resourceApp = express()
+  resourceApp.use((req, res, next) => (req.get('authorization') ? void res.status(403).send('No credentials here') : next()))
+  resourceApp.get('/static/t0k3n/index.html', (_req, res) =>
+    void res.type('text/html').send('<html><head><title>Gauge Report</title><script src="js/app.js"></script><script src="data/result.js"></script></head><body><div id="root"></div></body></html>'),
+  )
+  resourceApp.get('/static/t0k3n/js/app.js', (_req, res) => void res.type('application/javascript').send('function render(){ /* draws the report */ }'))
+  resourceApp.get('/static/t0k3n/data/result.js', (_req, res) =>
+    void res.type('application/javascript').send(
+      `var gaugeExecutionResult = ${JSON.stringify({ suiteResult: { specResults: [{ specHeading: 'Checkout', scenarios: [{ scenarioHeading: 'HIT-Checkout timeout', executionStatus: 'fail' }, { scenarioHeading: 'Pay', executionStatus: 'pass' }] }] } })};`,
+    ),
+  )
+  const resource = await listen(resourceApp)
   const app = express()
   const jobs = new Map<string, FakeBuild[]>([
     ['platform/integration-tests', [{ number: 41, result: 'FAILURE', building: false }]],
@@ -251,6 +265,7 @@ export async function fakeJenkins() {
     ['qa/gauge-hit', [{ number: 5, result: 'FAILURE', building: false }]],
     ['qa/gauge-load', [{ number: 3, result: 'UNSTABLE', building: false }]],
     ['qa/gauge-latest', [{ number: 8, result: 'FAILURE', building: false }]],
+    ['qa/gauge-spa', [{ number: 9, result: 'FAILURE', building: false }]],
     // A parent job: each run starts the Load Test, Longevity and HIT jobs.
     ['release/rc-validation', []],
     ['platform/deploy', []],
@@ -337,6 +352,8 @@ export async function fakeJenkins() {
     '/job/qa/job/gauge-latest/HTML_20Report/index.html': gaugeIndex.replace(/failed/g, 'passed').replace('Login</a>', 'Login</a></li><li class="spec-name failed"><a href="specs/search.html">Search</a>'),
     '/job/qa/job/gauge-latest/HTML_20Report/specs/search.html': '<h1>Search</h1><div class="scenario-container failed"><h3>HIT-No bug yet</h3></div>',
   }
+  // A Gauge report shown through Jenkins' resource address.
+  gaugePages['/job/qa/job/gauge-spa/9/HTML_20Report/'] = `<html><body><iframe id="myframe" src="${resource.url}/static/t0k3n/index.html"></iframe></body></html>`
   app.get(/^\/job\/qa\/job\/gauge-/, (req, res, next) => {
     const page = gaugePages[req.path]
     if (page) return void res.type(req.path.endsWith('.js') ? 'application/javascript' : 'text/html').send(page)
@@ -414,6 +431,10 @@ export async function fakeJenkins() {
   const server = await listen(app)
   return {
     ...server,
+    close: async () => {
+      await resource.close()
+      await server.close()
+    },
     jobs,
     triggered,
     /** Keep new builds waiting in the queue until released. */

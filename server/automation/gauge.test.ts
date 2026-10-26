@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { failedFromGaugeResult, failedScenariosOnSpecPage, failedSpecLinks, isGaugeReport, specCounts } from './gauge.js'
+import { failedFromGaugeResult, failedFromScript, failedScenariosOnSpecPage, failedSpecLinks, inlineScripts, isGaugeReport, scriptSources, specCounts } from './gauge.js'
 
 describe('Gauge reports', () => {
   it('reads failed scenarios from result.js / result.json', () => {
@@ -46,5 +46,19 @@ describe('Gauge reports', () => {
     expect(specCounts(index, 'https://ci/r/index.html')).toEqual({ specs: 3, failed: 2 })
     // Spec pages name scenarios with a span.
     expect(failedScenariosOnSpecPage(`<h1>Export</h1><div class="scenario-container failed"><span class="scenarioName">CSV export</span></div>`)).toEqual(['Export: CSV export'])
+  })
+
+  it('finds result data in scripts the page loads or embeds', () => {
+    const shell = `<html><head><title>Gauge Report</title>
+      <script src="js/vendor.js"></script><script src="./data/result.js"></script><script src="https://cdn.example.com/x.js"></script>
+      <script>window.boot({ "suiteResult": { "specResults": [ { "specHeading": "Pay", "scenarios": [ { "scenarioHeading": "Card {declined}", "executionStatus": "fail" } ] } ] } });</script>
+      </head><body><div id="root"></div></body></html>`
+    expect(scriptSources(shell, 'https://ci/job/x/5/HTML_20Report/index.html')).toEqual([
+      'https://ci/job/x/5/HTML_20Report/js/vendor.js',
+      'https://ci/job/x/5/HTML_20Report/data/result.js',
+    ])
+    expect(failedFromScript(inlineScripts(shell).join('\n'))).toEqual(['Pay: Card {declined}'])
+    expect(failedFromScript('var gaugeExecutionResult = {"specResults":[{"specHeading":"A","scenarios":[{"scenarioHeading":"b","failed":true}]}]};')).toEqual(['A: b'])
+    expect(failedFromScript('function x(){ return 1 }')).toBeNull()
   })
 })

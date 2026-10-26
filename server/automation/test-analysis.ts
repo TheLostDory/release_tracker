@@ -1,12 +1,12 @@
 import type { Config } from '../config.js'
 import { decrypt } from '../crypto.js'
 import type { Db } from '../db/pool.js'
-import { jenkinsGetText, type JenkinsConnection } from '../integrations/jenkins.js'
+import { jenkinsGetText, reportGetText, type JenkinsConnection } from '../integrations/jenkins.js'
 import type { JiraAuth, JiraConnection } from '../integrations/jira.js'
 import { OutboundError } from '../integrations/outbound.js'
 import { automationSettings } from './settings.js'
 import { findBugsForTests } from './test-failures.js'
-import { failedFromGaugeResult, failedScenariosOnSpecPage, failedSpecLinks, isGaugeReport, specCounts } from './gauge.js'
+import { failedFromGaugeResult, failedFromScript, failedScenariosOnSpecPage, failedSpecLinks, inlineScripts, isGaugeReport, scriptSources, specCounts } from './gauge.js'
 import { extractFailedTests, framedReport, reportLinksFromBuildPage, textOf } from './test-report.js'
 
 interface DueAnalysis {
@@ -43,17 +43,35 @@ const MAX_SPEC_PAGES = 30
  */
 export async function readFailedTests(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null, how: string[] = []): Promise<string[]> {
   const title = textOf(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '')
-  how.push(`Read ${url}${title ? ` ("${title}")` : ''}, ${Math.round(html.length / 1024)} KB.`)
+  const visible = textOf(html.replace(/<title\b[\s\S]*?<\/title>/i, '')).slice(0, 160)
+  how.push(`Read ${url}${title ? ` ("${title}")` : ''}, ${Math.round(html.length / 1024)} KB. Text starts: "${visible || '(no visible text)'}"`)
   if (pattern) {
     const found = extractFailedTests(html, pattern)
     how.push(`Used the project pattern: ${found.length} match${found.length === 1 ? '' : 'es'}.`)
     return found
   }
+  // A page that draws the report in the browser: its data is in a script (inline or loaded).
+  const inline = failedFromScript(inlineScripts(html).join('\n'))
+  if (inline) {
+    how.push(`Found Gauge's result data inside the page: ${inline.length} failed scenario${inline.length === 1 ? '' : 's'}.`)
+    return inline
+  }
+  const scripts = scriptSources(html, url)
+  how.push(scripts.length ? `The page loads ${scripts.length} script file${scripts.length === 1 ? '' : 's'}: ${scripts.map((x) => x.split('/').slice(-2).join('/')).join(', ')}.` : 'The page loads no script files from its own address.')
+  for (const script of scripts.slice(0, 10)) {
+    const text = await reportGetText(jenkins, script).catch(() => '')
+    const found = text ? failedFromScript(text) : null
+    if (found) {
+      how.push(`Found Gauge's result data in ${script.split('/').slice(-2).join('/')}: ${found.length} failed scenario${found.length === 1 ? '' : 's'}.`)
+      return found
+    }
+  }
+  if (scripts.length) how.push('None of those scripts holds Gauge result data.')
   if (isGaugeReport(html) || /\/HTML_20Report\//i.test(url)) {
     how.push('Recognised a Gauge report.')
     for (const data of ['js/result.js', '../json-report/result.json']) {
       try {
-        const found = failedFromGaugeResult(await jenkinsGetText(jenkins, new URL(data, url).toString()))
+        const found = failedFromGaugeResult(await reportGetText(jenkins, new URL(data, url).toString()))
         if (found) {
           how.push(`Read Gauge's result data (${data}): ${found.length} failed scenario${found.length === 1 ? '' : 's'}.`)
           return found
@@ -69,7 +87,7 @@ export async function readFailedTests(jenkins: JenkinsConnection, url: string, h
     if (specs.length) {
       const names: string[] = []
       for (const spec of specs) {
-        const page = await jenkinsGetText(jenkins, spec).catch(() => '')
+        const page = await reportGetText(jenkins, spec).catch(() => '')
         const found = failedScenariosOnSpecPage(page)
         const fallback = found.length ? found : extractFailedTests(page)
         // A failed spec whose scenarios can't be told apart still counts, by its name.
@@ -100,11 +118,11 @@ async function findReport(jenkins: JenkinsConnection, a: DueAnalysis, reportPath
   const buildUrl = a.status?.url ?? null
   const read = async (url: string, label: string) => {
     try {
-      let html = await jenkinsGetText(jenkins, url)
-      // HTML Publisher shows the report inside a frame.
+      let html = await reportGetText(jenkins, url)
+      // HTML Publisher shows the report inside a frame (possibly from Jenkins' resource address).
       const frame = framedReport(html, url)
-      if (frame && new URL(frame).host === new URL(url).host) {
-        html = await jenkinsGetText(jenkins, frame)
+      if (frame) {
+        html = await reportGetText(jenkins, frame)
         url = frame
       }
       return { url, html }
@@ -115,8 +133,12 @@ async function findReport(jenkins: JenkinsConnection, a: DueAnalysis, reportPath
   }
 
   if (a.report_url) {
-    const r = await read(a.report_url, 'the pasted link')
-    if (r) return { ...r, tried }
+    // A pasted link must be on Jenkins (its frame may lead to Jenkins' resource address).
+    if (new URL(a.report_url).host !== new URL(jenkins.baseUrl).host) tried.push('the pasted link is not on the connected Jenkins')
+    else {
+      const r = await read(a.report_url, 'the pasted link')
+      if (r) return { ...r, tried }
+    }
   }
   if (a.status?.reportUrl) {
     const r = await read(a.status.reportUrl, 'the .html artifact')

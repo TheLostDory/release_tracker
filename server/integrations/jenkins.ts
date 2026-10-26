@@ -417,3 +417,15 @@ export async function jenkinsGetText(c: JenkinsConnection, url: string): Promise
   if (new URL(url).host !== new URL(c.baseUrl).host) throw new HttpError(422, 'That report is not on the connected Jenkins.', 'invalid')
   return (await outboundText(url, SERVICE, { headers: { ...headers(c), accept: 'text/html,*/*' }, ca: c.ca, errorDetail: true })).text
 }
+
+/**
+ * A report page: from Jenkins with its credentials, or — for reports Jenkins
+ * serves from another address (its "Resource Root URL", whose links need no
+ * login) — fetched without any credentials, so they never leave Jenkins.
+ */
+export async function reportGetText(c: JenkinsConnection, url: string): Promise<string> {
+  const target = new URL(url)
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') throw new HttpError(422, 'Use an http(s) link.', 'invalid')
+  if (target.host === new URL(c.baseUrl).host) return jenkinsGetText(c, url)
+  return (await outboundText(url, 'The report server', { headers: { accept: 'text/html,*/*' }, ca: c.ca, errorDetail: true })).text
+}

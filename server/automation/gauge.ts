@@ -7,7 +7,7 @@ import { decodeEntities, textOf } from './test-report.js'
  */
 
 /** Whether a page looks like a Gauge HTML report. */
-export const isGaugeReport = (html: string) => /gauge/i.test(html) && /spec|scenario/i.test(html)
+export const isGaugeReport = (html: string) => /gauge/i.test(html)
 
 const name = (spec: string, scenario: string) => (spec ? `${spec.trim()}: ${scenario.trim()}` : scenario.trim())
 
@@ -104,4 +104,65 @@ export function specCounts(indexHtml: string, indexUrl: string): { specs: number
     }
   }
   return { specs: all.size, failed: failedSpecLinks(indexHtml, indexUrl).length }
+}
+
+/** Script files a page loads from the page's own host (not CDNs), absolute, in page order. */
+export function scriptSources(html: string, pageUrl: string): string[] {
+  const host = new URL(pageUrl).host
+  const out: string[] = []
+  for (const m of html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) {
+    try {
+      const url = new URL(decodeEntities(m[1]!), pageUrl)
+      if (url.host === host && !out.includes(url.toString())) out.push(url.toString())
+    } catch {
+      // not a link
+    }
+  }
+  return out
+}
+
+/** Inline <script> blocks of a page (where some reports embed their data). */
+export const inlineScripts = (html: string) => [...html.matchAll(/<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]!).filter((t) => t.trim())
+
+/**
+ * Gauge result data anywhere in a script: the object holding "specResults"
+ * (assigned to a variable, passed to a function, or plain JSON). Null if none.
+ */
+export function failedFromScript(text: string): string[] | null {
+  const at = text.search(/["']?specResults["']?\s*:/)
+  if (at === -1) return null
+  // Walk back to each "{" before it and try the balanced object from there (outermost first).
+  for (let start = text.lastIndexOf('{', at); start !== -1; start = text.lastIndexOf('{', start - 1)) {
+    const end = matchingBrace(text, start)
+    if (end === -1) continue
+    const found = failedFromGaugeResult(text.slice(start, end + 1))
+    if (found) {
+      // Prefer the object that also has suiteResult around it, if any.
+      const outer = text.lastIndexOf('{', start - 1)
+      if (outer !== -1 && matchingBrace(text, outer) !== -1) {
+        const wider = failedFromGaugeResult(text.slice(outer, matchingBrace(text, outer) + 1))
+        if (wider && wider.length >= found.length) return wider
+      }
+      return found
+    }
+  }
+  return null
+}
+
+/** Index of the "}" closing the "{" at `start` (strings respected), or -1. */
+function matchingBrace(text: string, start: number): number {
+  let depth = 0
+  let quote: string | null = null
+  for (let i = start; i < text.length && i < start + 20_000_000; i++) {
+    const ch = text[i]!
+    if (quote) {
+      if (ch === '\\') i++
+      else if (ch === quote) quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'" || ch === '`') quote = ch
+    else if (ch === '{') depth++
+    else if (ch === '}' && --depth === 0) return i
+  }
+  return -1
 }

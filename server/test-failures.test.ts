@@ -140,4 +140,18 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
     expect(found.state).toBe('done')
     expect(found.result.failedTests).toHaveLength(2)
   })
+
+  it("follows HTML Publisher's frame to Jenkins' resource address (no credentials) and reads the data scripts", async () => {
+    const c = await owner()
+    const reportUrl = `${jenkins.url}/job/qa/job/gauge-spa/9/HTML_20Report/`
+    const preview = (await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl })).body
+    expect(preview.failedTests).toEqual(['Checkout: HIT-Checkout timeout'])
+    expect(preview.how.join('\n')).toMatch(/fetched without credentials[\s\S]*Found Gauge's result data in data\/result\.js: 1 failed scenario/)
+
+    const release = (await c.post('/api/releases', { project_id: projectId, name: 'RC_SPA', version: '12.8.0', planned_deployment_date: '2031-05-22' })).body
+    await c.post(`/api/releases/${release.id}/jenkins/followed`, { url: `${jenkins.url}/job/qa/job/gauge-spa/9/`, purpose: 'HIT' })
+    await process(release.id)
+    const [a] = (await c.get(`/api/releases/${release.id}/test-analyses`)).body
+    expect(a.result.failedTests.map((t: any) => `${t.name} → ${t.bugs.map((b: any) => b.key).join(',')}`)).toEqual(['Checkout: HIT-Checkout timeout → ABC-300'])
+  })
 })
