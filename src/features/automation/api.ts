@@ -17,3 +17,16 @@ export interface AutomationSettings {
 export const getAutomation = (projectId: string) => api.get<AutomationSettings>(`/projects/${projectId}/automation`)
 export const saveAutomation = (projectId: string, settings: AutomationSettings) => api.put(`/projects/${projectId}/automation`, settings)
 export const planReleaseDates = (releaseId: string) => api.post<{ changed: number }>(`/releases/${releaseId}/plan-dates`)
+
+export interface EmailDraft {
+  step: EmailStep
+  to: string
+  cc: string
+  subject: string
+  text: string
+  html: string
+  /** E.g. Jira couldn't be read, so the content list is missing. */
+  notes: string[]
+}
+
+export const getEmailDraft = (releaseId: string, step: EmailStep) => api.get<EmailDraft>(`/releases/${releaseId}/emails/${step}`)

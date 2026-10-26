@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react'
-import { ArrowDown, ChevronRight, ExternalLink, Link2, StickyNote } from 'lucide-react'
+import { ArrowDown, ChevronRight, ExternalLink, Link2, Mail, StickyNote } from 'lucide-react'
 import { TaskStatusBadge } from '@/components/status-badges'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,8 @@ import { safeHttpUrl } from '@/lib/safe-url'
 import { TASK_STATUS_LABELS } from '@/lib/status-labels'
 import { cn } from '@/lib/utils'
 import { isDone, STEP_BY_TYPE, unmetDependencies, type WorkflowStep } from '@/lib/workflow'
+import type { EmailStep } from '@/features/automation/api'
+import { EmailDraftDialog } from '@/features/automation/email-draft-dialog'
 import { AutomatedJobsPanel } from '@/features/integrations/automated-jobs-panel'
 import type { ReportType, TaskStatus, WorkflowTaskType } from '@/types/domain'
 import type { ReleaseTask, TaskPatch } from '../api'
@@ -46,6 +48,7 @@ export function TaskList({ tasks, current, onUpdate, guard, readOnly = false, re
   const { currentProject } = useCurrentProject()
   const { data: members = [] } = useProjectMembers(currentProject?.id)
   const profiles = members.flatMap((m) => (m.profile ? [m.profile] : []))
+  const [drafting, setDrafting] = useState<ReleaseTask | null>(null)
   // While the release is at the Automated jobs step, its jobs are shown right away.
   const [expanded, setExpanded] = useState<string | null>(() =>
     current === 'AUTOMATED_JOBS' && release ? (tasks.find((t) => t.task_type === 'AUTOMATED_JOBS')?.id ?? null) : null,
@@ -103,6 +106,12 @@ export function TaskList({ tasks, current, onUpdate, guard, readOnly = false, re
                       </span>
                       {task.notes && <StickyNote className="size-3 text-muted-foreground" aria-label="Has notes" />}
                       {task.link && <Link2 className="size-3 text-muted-foreground" aria-label="Has link" />}
+                      {release && isEmailStep(task.task_type) && (
+                        <Button size="xs" variant="outline" className="ml-1 h-6 gap-1 px-2 text-xs" onClick={() => setDrafting(task)}>
+                          <Mail className="size-3" />
+                          Draft email
+                        </Button>
+                      )}
                     </div>
                     {task.status === 'BLOCKED' && task.blocker_reason && (
                       <p className="text-xs text-red-600 dark:text-red-400">{task.blocker_reason}</p>
@@ -208,9 +217,21 @@ export function TaskList({ tasks, current, onUpdate, guard, readOnly = false, re
           })}
         </TableBody>
       </Table>
+      {release && drafting && isEmailStep(drafting.task_type) && (
+        <EmailDraftDialog
+          releaseId={release.id}
+          step={drafting.task_type}
+          stepName={drafting.name}
+          open
+          onOpenChange={(o) => !o && setDrafting(null)}
+          onMarkSent={!readOnly && !isDone(drafting.status) ? () => changeStatus(drafting, 'COMPLETED') : undefined}
+        />
+      )}
     </div>
   )
 }
+
+const isEmailStep = (t: WorkflowTaskType): t is EmailStep => t === 'RC_EMAIL' || t === 'RC_ESCALATION_EMAIL' || t === 'RELEASE_EMAIL'
 
 /** Notes, link and blocker reason; each saves on blur when changed. */
 function TaskDetails({ task, onUpdate, readOnly }: { task: ReleaseTask; onUpdate: Props['onUpdate']; readOnly: boolean }) {

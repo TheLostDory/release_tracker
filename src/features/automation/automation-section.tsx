@@ -6,7 +6,7 @@ import type { Project } from '@/features/projects/api'
 import { SettingsSection } from '@/features/projects/settings/settings-section'
 import { toUserMessage } from '@/lib/errors'
 import { STEP_BY_TYPE } from '@/lib/workflow'
-import type { AutomationSettings } from './api'
+import type { AutomationSettings, EmailStep } from './api'
 import { useAutomation, useSaveAutomation } from './queries'
 
 /** Project settings → Automation: what the tracker does by itself. */
@@ -63,6 +63,33 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
             ))}
           </div>
         </Block>
+
+        <Block
+          title="Email drafts"
+          description="RC email, RC escalation email and Release email get a “Draft email” button, written from the release’s data. Default recipients (separate with ; or ,):"
+        >
+          <div className="space-y-2">
+            {EMAILS.map(({ step, label }) => (
+              <div key={step} className="grid items-center gap-2 sm:grid-cols-[10rem_1fr_1fr]">
+                <span className="text-sm">{label}</span>
+                <Input
+                  aria-label={`${label}: to`}
+                  placeholder="To"
+                  className="h-8"
+                  value={s.emails.recipients[step].to}
+                  onChange={(e) => set('emails', { recipients: { ...s.emails.recipients, [step]: { ...s.emails.recipients[step], to: e.target.value } } })}
+                />
+                <Input
+                  aria-label={`${label}: cc`}
+                  placeholder="Cc"
+                  className="h-8"
+                  value={s.emails.recipients[step].cc}
+                  onChange={(e) => set('emails', { recipients: { ...s.emails.recipients, [step]: { ...s.emails.recipients[step], cc: e.target.value } } })}
+                />
+              </div>
+            ))}
+          </div>
+        </Block>
       </fieldset>
 
       {canManage ? (
@@ -92,30 +119,43 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
   )
 }
 
-/** One automation: a switch, what it does, and its options (shown while on). */
+const EMAILS: { step: EmailStep; label: string }[] = [
+  { step: 'RC_EMAIL', label: 'RC email' },
+  { step: 'RC_ESCALATION_EMAIL', label: 'RC escalation email' },
+  { step: 'RELEASE_EMAIL', label: 'Release email' },
+]
+
+/** One automation: a switch (when it can be turned off), what it does, and its options (shown while on). */
 export function Block({
   title,
   description,
-  enabled,
+  enabled = true,
   onToggle,
   children,
 }: {
   title: string
   description: ReactNode
-  enabled: boolean
-  onToggle: (enabled: boolean) => void
+  enabled?: boolean
+  onToggle?: (enabled: boolean) => void
   children?: ReactNode
 }) {
+  const heading = (
+    <span>
+      <span className="text-sm font-medium">{title}</span>
+      <span className="block text-xs text-muted-foreground">{description}</span>
+    </span>
+  )
   return (
     <div className="space-y-2 rounded-md border p-3">
-      <label className="flex items-start gap-2">
-        <input type="checkbox" className="mt-0.5 size-4 accent-foreground" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
-        <span>
-          <span className="text-sm font-medium">{title}</span>
-          <span className="block text-xs text-muted-foreground">{description}</span>
-        </span>
-      </label>
-      {enabled && children && <div className="pl-6">{children}</div>}
+      {onToggle ? (
+        <label className="flex items-start gap-2">
+          <input type="checkbox" className="mt-0.5 size-4 accent-foreground" checked={enabled} onChange={(e) => onToggle(e.target.checked)} />
+          {heading}
+        </label>
+      ) : (
+        heading
+      )}
+      {enabled && children && <div className={onToggle ? 'pl-6' : undefined}>{children}</div>}
     </div>
   )
 }
