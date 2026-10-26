@@ -87,12 +87,20 @@ export async function readFailedTests(jenkins: JenkinsConnection, url: string, h
     if (specs.length) {
       const names: string[] = []
       for (const spec of specs) {
-        const page = await reportGetText(jenkins, spec).catch(() => '')
+        let reason = ''
+        const page = await reportGetText(jenkins, spec).catch((err: unknown) => {
+          reason = (err as Error).message
+          return ''
+        })
         const found = failedScenariosOnSpecPage(page)
         const fallback = found.length ? found : extractFailedTests(page)
         // A failed spec whose scenarios can't be told apart still counts, by its name.
         const list = fallback.length ? fallback : [decodeURIComponent(spec.split('/').pop()!.replace(/\.html?$/i, '').replace(/[_-]+/g, ' '))]
-        how.push(`${spec.split('/').pop()}: ${page ? `${found.length} failed scenario${found.length === 1 ? '' : 's'} found${found.length ? '' : fallback.length ? ' by layout' : ', listed by its name'}` : "couldn't be read"}.`)
+        how.push(
+          `${decodeURIComponent(spec.split('/').slice(-2).join('/'))}: ${
+            page ? `${found.length} failed scenario${found.length === 1 ? '' : 's'} found${found.length ? '' : fallback.length ? ' by layout' : ', listed by its name'}` : `couldn't be read (${reason})`
+          }.`,
+        )
         for (const n of list) if (!names.includes(n)) names.push(n)
       }
       return names

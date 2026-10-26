@@ -20,6 +20,8 @@ export interface OutboundRequest {
   timeoutMs?: number
   /** Include the service's own error message (first 300 chars) in failures. */
   errorDetail?: boolean
+  /** Largest response accepted (default 5 MB). */
+  maxBytes?: number
 }
 
 /**
@@ -169,10 +171,11 @@ function host(url: string): string {
 /** The response body as text (size-capped), with its content type. */
 export async function outboundText(url: string, service: string, req: OutboundRequest = {}): Promise<{ text: string; contentType: string }> {
   const res = await outbound(url, service, req)
+  const max = req.maxBytes ?? MAX_BYTES
   const length = Number(res.headers.get('content-length') ?? 0)
-  if (length > MAX_BYTES) throw new OutboundError(`${service} response is too large.`)
+  if (length > max) throw new OutboundError(`${service} response is too large (${Math.round(length / 1048576)} MB).`)
   const text = await res.text()
-  if (text.length > MAX_BYTES) throw new OutboundError(`${service} response is too large.`)
+  if (text.length > max) throw new OutboundError(`${service} response is too large (${Math.round(text.length / 1048576)} MB).`)
   return { text, contentType: res.headers.get('content-type') ?? '' }
 }
 

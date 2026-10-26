@@ -338,7 +338,8 @@ export async function fakeJenkins() {
     '/job/qa/job/gauge-hit/5/HTML_20Report/index.html': gaugeIndex,
     '/job/qa/job/gauge-hit/5/HTML_20Report/specs/checkout.html': `<h1>Checkout</h1>
       <div class="scenario-container passed"><h3>Pay by card</h3></div>
-      <div class="scenario-container failed"><h3>HIT-Checkout timeout</h3></div>`,
+      <div class="scenario-container failed"><h3>HIT-Checkout timeout</h3>
+        <img alt="failure screenshot" src="data:image/png;base64,${'A'.repeat(7 * 1024 * 1024)}"></div>`,
     '/job/qa/job/gauge-hit/5/HTML_20Report/specs/search.html': `<h1>Search</h1>
       <div class="scenario-container failed"><h3>HIT-Search filters</h3></div>`,
     // Result data next to the report (recent Gauge versions).

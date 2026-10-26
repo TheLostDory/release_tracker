@@ -415,8 +415,11 @@ function dedupe(refs: ChildRef[]): ChildRef[] {
 /** A page from the connected Jenkins (e.g. a build's HTML report), as text. */
 export async function jenkinsGetText(c: JenkinsConnection, url: string): Promise<string> {
   if (new URL(url).host !== new URL(c.baseUrl).host) throw new HttpError(422, 'That report is not on the connected Jenkins.', 'invalid')
-  return (await outboundText(url, SERVICE, { headers: { ...headers(c), accept: 'text/html,*/*' }, ca: c.ca, errorDetail: true })).text
+  return (await outboundText(url, SERVICE, { headers: { ...headers(c), accept: 'text/html,*/*' }, ca: c.ca, errorDetail: true, maxBytes: REPORT_MAX_BYTES, timeoutMs: 60_000 })).text
 }
+
+/** Report pages can embed screenshots (Gauge puts failure screenshots in the page). */
+const REPORT_MAX_BYTES = 60 * 1024 * 1024
 
 /**
  * A report page: from Jenkins with its credentials, or — for reports Jenkins
@@ -427,5 +430,5 @@ export async function reportGetText(c: JenkinsConnection, url: string): Promise<
   const target = new URL(url)
   if (target.protocol !== 'https:' && target.protocol !== 'http:') throw new HttpError(422, 'Use an http(s) link.', 'invalid')
   if (target.host === new URL(c.baseUrl).host) return jenkinsGetText(c, url)
-  return (await outboundText(url, 'The report server', { headers: { accept: 'text/html,*/*' }, ca: c.ca, errorDetail: true })).text
+  return (await outboundText(url, 'The report server', { headers: { accept: 'text/html,*/*' }, ca: c.ca, errorDetail: true, maxBytes: REPORT_MAX_BYTES, timeoutMs: 60_000 })).text
 }
