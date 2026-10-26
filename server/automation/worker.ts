@@ -1,7 +1,10 @@
 import type { Config } from '../config.js'
 import { decrypt } from '../crypto.js'
 import type { Db } from '../db/pool.js'
+import { cached } from '../integrations/cache.js'
+import { githubBranchExists, type GitHubConnection } from '../integrations/github.js'
 import { jenkinsBuildTree, jenkinsQueueItem, jenkinsTrigger, type JenkinsConnection } from '../integrations/jenkins.js'
+import { jiraVersions, type JiraAuth, type JiraConnection } from '../integrations/jira.js'
 import { OutboundError } from '../integrations/outbound.js'
 
 /**
@@ -80,14 +83,97 @@ async function fail(db: Db, s: StartRow, message: string, final: boolean) {
   await db.query('select jenkins_start_update($1, $2, null, $3)', [s.id, final ? 'failed' : s.state, message])
 }
 
-/** Runs the automation tasks: Jenkins starts every 20 s. */
+interface CandidateRow {
+  release_id: string
+  project_id: string
+  name: string
+  version: string
+  jira_version_id: string | null
+  rc_open: boolean
+  deploy_open: boolean
+  rc_from_github: boolean
+  deploy_from_jira: boolean
+  code_refs: { repo: string; head: string }[]
+  gh_base_url: string | null
+  gh_secret: string | null
+  gh_ca: string | null
+  gh_settings: { repos?: string[]; headTemplate?: string } | null
+  jira_integration_id: string | null
+  jira_base_url: string | null
+  jira_auth: JiraAuth | null
+  jira_username: string | null
+  jira_secret: string | null
+  jira_ca: string | null
+  jira_settings: { projectKey?: string } | null
+}
+
+const fill = (t: string, r: { name: string; version: string }) => t.replaceAll('{{version}}', r.version).replaceAll('{{name}}', r.name)
+
+/**
+ * RC creation completes when the RC branch exists on GitHub in every
+ * repository; Deployment completes when the Jira version is released.
+ */
+export async function checkAutoComplete(db: Db, config: Config, projectId?: string): Promise<{ rc: number; deployed: number }> {
+  const done = { rc: 0, deployed: 0 }
+  if (!config.ENCRYPTION_KEY) return done
+  const { rows } = await db.query<CandidateRow>('select * from auto_complete_candidates()')
+  for (const r of rows.filter((x) => !projectId || x.project_id === projectId)) {
+    // RC branch on GitHub.
+    if (r.rc_open && r.rc_from_github && r.gh_base_url && r.gh_secret) {
+      try {
+        const gh: GitHubConnection = { apiUrl: r.gh_base_url, secret: decrypt(r.gh_secret, config.ENCRYPTION_KEY), ca: r.gh_ca }
+        // The release's chosen branches (Code vs Jira), or the project's RC pattern in each repository.
+        const wanted = r.code_refs.length
+          ? r.code_refs.map((c) => ({ repo: c.repo, branch: c.head }))
+          : (r.gh_settings?.repos ?? []).map((repo) => ({ repo, branch: fill(r.gh_settings?.headTemplate || 'release/{{version}}', r) }))
+        if (wanted.length) {
+          const found = await Promise.all(wanted.map((w) => githubBranchExists(gh, w.repo, w.branch)))
+          if (found.every(Boolean)) {
+            const where = [...new Set(wanted.map((w) => w.branch))].join(', ')
+            const reason = `RC creation completed automatically: ${where} found on GitHub (${wanted.map((w) => w.repo).join(', ')})`
+            if ((await db.query<{ ok: boolean }>("select complete_step_by_automation($1, 'RC_CREATION', $2) as ok", [r.release_id, reason])).rows[0]?.ok) done.rc++
+          }
+        }
+      } catch (err) {
+        console.warn(`[automation] RC check for ${r.name}: ${(err as Error).message}`)
+      }
+    }
+    // Jira version released.
+    if (r.deploy_open && r.deploy_from_jira && r.jira_version_id && r.jira_base_url && r.jira_secret && r.jira_settings?.projectKey) {
+      try {
+        const jira: JiraConnection = {
+          baseUrl: r.jira_base_url,
+          authType: r.jira_auth!,
+          username: r.jira_username,
+          secret: decrypt(r.jira_secret, config.ENCRYPTION_KEY),
+          ca: r.jira_ca,
+        }
+        const versions = await cached(`versions:${r.jira_integration_id}`, 60_000, () => jiraVersions(jira, r.jira_settings!.projectKey!))
+        const v = versions.find((x) => x.id === r.jira_version_id)
+        if (v?.released) {
+          const day = v.releaseDate ?? new Date().toISOString().slice(0, 10)
+          const reason = `Deployment completed automatically: Jira version ${v.name} was released${v.releaseDate ? ` on ${v.releaseDate}` : ''}`
+          if ((await db.query<{ ok: boolean }>('select mark_deployed_by_automation($1, $2, $3) as ok', [r.release_id, day, reason])).rows[0]?.ok) done.deployed++
+        }
+      } catch (err) {
+        console.warn(`[automation] Jira check for ${r.name}: ${(err as Error).message}`)
+      }
+    }
+  }
+  return done
+}
+
+/** Runs the automation tasks: Jenkins starts every 20 s; step checks every 5 minutes. */
 export function startAutomationWorker(db: Db, config: Config): () => void {
   let running = false
+  let ticks = 0
   const tick = async () => {
     if (running) return
     running = true
     try {
       await processJenkinsStarts(db, config)
+      if (ticks % 15 === 0) await checkAutoComplete(db, config)
+      ticks++
     } catch (err) {
       console.error('[automation] failed:', (err as Error).message)
     } finally {

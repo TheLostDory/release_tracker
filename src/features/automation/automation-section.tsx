@@ -82,6 +82,32 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
         </Block>
 
         <Block
+          title="Complete steps automatically"
+          description="Checked every 5 minutes for releases that aren’t deployed; each completion is noted in the release’s activity."
+        >
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-foreground"
+                checked={s.autoComplete.rcCreationFromGithub}
+                onChange={(e) => set('autoComplete', { ...s.autoComplete, rcCreationFromGithub: e.target.checked })}
+              />
+              RC creation, when the RC branch exists on GitHub (in every repository)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-foreground"
+                checked={s.autoComplete.deploymentFromJira}
+                onChange={(e) => set('autoComplete', { ...s.autoComplete, deploymentFromJira: e.target.checked })}
+              />
+              Deployment, when the Jira version is released (its release date becomes the deployment date)
+            </label>
+          </div>
+        </Block>
+
+        <Block
           title="Email drafts"
           description="RC email, RC escalation email and Release email get a “Draft email” button, written from the release’s data. Default recipients (separate with ; or ,):"
         >

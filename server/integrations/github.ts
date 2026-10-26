@@ -147,3 +147,15 @@ export async function githubPull(c: GitHubConnection, repo: string, number: numb
     throw err
   }
 }
+
+/** Whether a branch exists in the repository (404 → false). */
+export async function githubBranchExists(c: GitHubConnection, repo: string, branch: string): Promise<boolean> {
+  if (!isRepoName(repo) || !isRefName(branch)) return false
+  try {
+    await get(c, `/repos/${repo}/branches/${refPath(branch)}`)
+    return true
+  } catch (err) {
+    if (err instanceof OutboundError && err.status === 404) return false
+    throw err
+  }
+}

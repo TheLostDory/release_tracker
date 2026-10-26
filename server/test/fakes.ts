@@ -398,6 +398,12 @@ export async function fakeGitHub() {
   app.get('/repos/:owner/:repo', (req, res) =>
     `${req.params.owner}/${req.params.repo}` === 'acme/app' ? void res.json({ full_name: 'acme/app', default_branch: 'main' }) : void res.status(404).json({ message: 'Not Found' }),
   )
+  // Branches that exist (others 404). Slashes in names are kept.
+  const branches = new Set(['main', 'release/1.3.0', 'release/1.4.0'])
+  app.get(/^\/repos\/acme\/app\/branches\/(.+)$/, (req, res) => {
+    const name = decodeURIComponent(req.path.replace('/repos/acme/app/branches/', ''))
+    return branches.has(name) ? void res.json({ name, commit: { sha: 'abc' } }) : void res.status(404).json({ message: 'Branch not found' })
+  })
   app.get('/repos/:owner/:repo/pulls/:n', (req, res) => {
     const p = pulls[Number(req.params.n)]
     return p ? void res.json(p) : void res.status(404).json({ message: 'Not Found' })
@@ -414,7 +420,12 @@ export async function fakeGitHub() {
       commits: releaseCommits.slice((page - 1) * per, page * per),
     })
   })
-  return { ...(await listen(app)), calls }
+  return {
+    ...(await listen(app)),
+    calls,
+    /** Create a branch (e.g. the next RC). */
+    addBranch: (name: string) => void branches.add(name),
+  }
 }
 
 /** Fake Teams Workflows webhook: records the cards; can be told to fail. */

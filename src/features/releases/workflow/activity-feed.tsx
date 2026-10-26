@@ -25,8 +25,8 @@ export function ActivityFeed({ releaseId }: { releaseId: string }) {
           <time dateTime={entry.created_at} className="block text-xs text-muted-foreground tabular-nums">
             {formatTimestamp(entry.created_at)}
           </time>
-          {entry.action.startsWith('jenkins.') && !entry.user ? (
-            // Background Jenkins sync: the description already names Jenkins.
+          {(entry.action.startsWith('jenkins.') || entry.action.startsWith('automation.')) && !entry.user ? (
+            // Background Jenkins sync / automation: the description says what happened.
             entry.description
           ) : (
             <>
