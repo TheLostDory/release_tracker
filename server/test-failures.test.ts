@@ -76,14 +76,15 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
   it('previews what a pattern finds in a report (admins)', async () => {
     const c = await owner()
     const reportUrl = `${jenkins.url}/job/platform/job/hit-suite/7/artifact/reports/hit.html`
-    expect((await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl })).body.failedTests).toEqual([
+    const names = async (body: object) => (await c.post(`/api/projects/${projectId}/test-report/preview`, body)).body.failedTests.map((t: any) => t.name)
+    expect(await names({ reportUrl })).toEqual([
       'HIT-Checkout timeout',
       'test_export_ABC_42',
       'HIT-Search filters',
       'HIT-No bug yet',
     ])
     // A row reads "HIT-Checkout timeout FAIL 30 s".
-    expect((await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl, pattern: String.raw`^(HIT-.+?) FAIL` })).body.failedTests).toEqual([
+    expect(await names({ reportUrl, pattern: String.raw`^(HIT-.+?) FAIL` })).toEqual([
       'HIT-Checkout timeout',
       'HIT-Search filters',
       'HIT-No bug yet',
@@ -104,6 +105,7 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
         a.result.failedTests.map((t: any) => `${t.name} → ${t.bugs.map((b: any) => b.key).join(',') || 'no bug'}`),
       ]),
     )
+    // Looked up by the script (the spec's folder: specs/TC_101/case.html), not the scenario.
     expect(byReport).toEqual({
       '/job/qa/job/gauge-hit/5/HTML_20Report/index.html': ['Checkout: HIT-Checkout timeout → ABC-300', 'Search: HIT-Search filters → ABC-201'],
       '/job/qa/job/gauge-load/3/HTML_20Report/index.html': ['Load: test_export_ABC_42 → ABC-42'],
@@ -117,10 +119,19 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
     expect(latest.result.reportUrl).toBe(`${jenkins.url}/job/qa/job/gauge-latest/HTML_20Report/index.html`)
     expect(latest.result.failedTests.map((t: any) => t.name)).toEqual(['Search: HIT-No bug yet'])
 
+    const hit = (await c.get(`/api/releases/${release.id}/test-analyses`)).body.find((a: any) => a.result.reportUrl.includes('gauge-hit'))
+    expect(hit.result.failedTests.map((t: any) => `${t.script} ${t.bugs.map((b: any) => `${b.key} (${b.via})`)}`)).toEqual([
+      'TC_101 ABC-300 (mentions TC_101)', // not ABC-301, which mentions TC_1010
+      'TC_102 ABC-201 (linked to test case ABC-200, which mentions TC_102)', // the test case is labelled TC_102
+    ])
+    // Result data: the spec's file, and tags that look like IDs.
+    const load = (await c.get(`/api/releases/${release.id}/test-analyses`)).body.find((a: any) => a.result.reportUrl.includes('gauge-load'))
+    expect(load.result.failedTests[0]).toMatchObject({ script: 'TC_104', ids: ['TC_104', 'TC-9001'] })
+
     // The settings "Test" tool reads the same way (from the HTML_20Report/ link).
     expect((await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl: `${jenkins.url}/job/qa/job/gauge-hit/5/HTML_20Report/` })).body.failedTests).toEqual([
-      'Checkout: HIT-Checkout timeout',
-      'Search: HIT-Search filters',
+      { name: 'Checkout: HIT-Checkout timeout', script: 'TC_101', ids: ['TC_101'] },
+      { name: 'Search: HIT-Search filters', script: 'TC_102', ids: ['TC_102'] },
     ])
   })
 
@@ -145,7 +156,7 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
     const c = await owner()
     const reportUrl = `${jenkins.url}/job/qa/job/gauge-spa/9/HTML_20Report/`
     const preview = (await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl })).body
-    expect(preview.failedTests).toEqual(['Checkout: HIT-Checkout timeout'])
+    expect(preview.failedTests).toEqual([{ name: 'Checkout: HIT-Checkout timeout', script: 'TC_101', ids: ['TC_101'] }])
     expect(preview.how.join('\n')).toMatch(/fetched without credentials[\s\S]*Found Gauge's result data in data\/result\.js: 1 failed scenario/)
 
     const release = (await c.post('/api/releases', { project_id: projectId, name: 'RC_SPA', version: '12.8.0', planned_deployment_date: '2031-05-22' })).body
@@ -159,9 +170,12 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
     const c = await owner()
     const reportUrl = `${jenkins.url}/job/qa/job/gauge-cut/4/HTML_20Report/index.html`
     const preview = (await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl })).body
-    expect(preview.failedTests).toEqual(['Export spec: CSV export', 'Search spec'])
+    expect(preview.failedTests).toEqual([
+      { name: 'Export spec: CSV export', script: 'export', ids: ['export'] },
+      { name: 'Search spec', script: 'search', ids: ['search'] },
+    ])
     const how = preview.how.join('\n')
-    expect(how).toMatch(/Export spec: 1 failed scenario found \(page incomplete: the connection closed after 0\.\d MB\)/)
-    expect(how).toMatch(/Search spec: couldn't be read \(.*\), listed by the spec name/)
+    expect(how).toMatch(/Export spec \(script export\): 1 failed scenario found \(page incomplete: the connection closed after 0\.\d MB\)/)
+    expect(how).toMatch(/Search spec \(script search\): couldn't be read \(.*\), listed by the spec name/)
   })
 })

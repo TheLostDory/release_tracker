@@ -7,7 +7,7 @@ import { OutboundError } from '../integrations/outbound.js'
 import { automationSettings } from './settings.js'
 import { findBugsForTests } from './test-failures.js'
 import { failedFromGaugeResult, failedFromScript, failedScenariosOnSpecPage, failedSpecs, inlineScripts, isGaugeReport, scriptSources, specCounts } from './gauge.js'
-import { extractFailedTests, framedReport, reportLinksFromBuildPage, textOf } from './test-report.js'
+import { byName, extractFailedTests, framedReport, reportLinksFromBuildPage, textOf, type FailedTestRef } from './test-report.js'
 
 interface DueAnalysis {
   run_id: string
@@ -37,18 +37,18 @@ interface DueAnalysis {
 const MAX_SPEC_PAGES = 30
 
 /**
- * Failed test names in a report page. A project pattern wins; Gauge reports
- * are read from their result data, else from the failed specs' pages; any
- * other report with the common layouts.
+ * Failed tests in a report page. A project pattern wins; Gauge reports are
+ * read from their result data, else from the failed specs' pages (each test
+ * with its script and ID tags); any other report with the common layouts.
  */
-export async function readFailedTests(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null, how: string[] = []): Promise<string[]> {
+export async function readFailedTests(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null, how: string[] = []): Promise<FailedTestRef[]> {
   const title = textOf(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '')
   const visible = textOf(html.replace(/<title\b[\s\S]*?<\/title>/i, '')).slice(0, 160)
   how.push(`Read ${url}${title ? ` ("${title}")` : ''}, ${Math.round(html.length / 1024)} KB. Text starts: "${visible || '(no visible text)'}"`)
   if (pattern) {
     const found = extractFailedTests(html, pattern)
     how.push(`Used the project pattern: ${found.length} match${found.length === 1 ? '' : 'es'}.`)
-    return found
+    return byName(found)
   }
   // A page that draws the report in the browser: its data is in a script (inline or loaded).
   const inline = failedFromScript(inlineScripts(html).join('\n'))
@@ -85,7 +85,7 @@ export async function readFailedTests(jenkins: JenkinsConnection, url: string, h
     how.push(`The overview links ${counts.specs} spec page${counts.specs === 1 ? '' : 's'}, ${counts.failed} marked failed.`)
     const specs = failedSpecs(html, url).slice(0, MAX_SPEC_PAGES)
     if (specs.length) {
-      const names: string[] = []
+      const tests: FailedTestRef[] = []
       for (const spec of specs) {
         let reason = ''
         const got = await reportGetPage(jenkins, spec.url).catch((err: unknown) => {
@@ -93,20 +93,26 @@ export async function readFailedTests(jenkins: JenkinsConnection, url: string, h
           return null
         })
         const page = got?.text ?? ''
-        const found = failedScenariosOnSpecPage(page).map((n) => (n.includes(': ') ? n : `${spec.name}: ${n}`))
-        const fallback = found.length ? found : extractFailedTests(page)
+        // The script: the file the spec page was published as (Gauge mirrors specs/TC_1/case.spec as specs/TC_1/case.html).
+        const found = failedScenariosOnSpecPage(page).map((t) => ({
+          name: t.name.includes(': ') ? t.name : `${spec.name}: ${t.name}`,
+          script: spec.script,
+          ids: [...new Set([spec.script, ...t.ids])],
+        }))
+        const asSpec = (n: string) => ({ name: n, script: spec.script, ids: [spec.script] })
+        const fallback = found.length ? found : extractFailedTests(page).map(asSpec)
         // A failed spec whose scenarios can't be read still counts, by its name.
-        const list = fallback.length ? fallback : [spec.name]
+        const list = fallback.length ? fallback : [asSpec(spec.name)]
         how.push(
-          `${spec.name}: ${
+          `${spec.name} (script ${spec.script}): ${
             got
               ? `${found.length} failed scenario${found.length === 1 ? '' : 's'} found${found.length ? '' : fallback.length ? ' by layout' : ', listed by the spec name'}${got.partial ? ` (page incomplete: ${got.partial})` : ''}`
               : `couldn't be read (${reason}), listed by the spec name`
           }.`,
         )
-        for (const n of list) if (!names.includes(n)) names.push(n)
+        for (const t of list) if (!tests.some((x) => x.name === t.name)) tests.push(t)
       }
-      return names
+      return tests
     }
   } else {
     how.push('Not recognised as a Gauge report.')
@@ -115,7 +121,7 @@ export async function readFailedTests(jenkins: JenkinsConnection, url: string, h
   const rows = (html.match(/<tr\b/gi) ?? []).length
   const failMarks = (html.match(/\b(fail|failed|failure|error)\b/gi) ?? []).length
   how.push(`Common layouts: ${found.length} failed test${found.length === 1 ? '' : 's'} (the page has ${rows} table rows and mentions fail/error ${failMarks} times).`)
-  return found
+  return byName(found)
 }
 
 /**
@@ -211,7 +217,7 @@ export async function processTestAnalyses(db: Db, config: Config, releaseId?: st
       const html = report.html!
       const failed = await readFailedTests(jenkins, reportUrl, html, settings.failedPattern || null)
       const notes: string[] = []
-      let tests = failed.map((name) => ({ name, bugs: [] as unknown[] }))
+      let tests = failed.map((t) => ({ ...t, bugs: [] as unknown[] }))
       if (failed.length && a.jira_base_url && a.jira_secret) {
         const jira: JiraConnection = {
           baseUrl: a.jira_base_url,

@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { CATEGORY } from '@/features/integrations/jira-status'
 import { safeHttpUrl } from '@/lib/safe-url'
 import { cn } from '@/lib/utils'
-import type { FoundBug, TestAnalysis } from './api'
+import type { FailedTestRef, FoundBug, TestAnalysis } from './api'
 import { useAnalyzeRun } from './queries'
 
 /** Under a HIT / Load Test run: its failed tests and the Jira bugs linked to each. */
@@ -88,6 +88,7 @@ export function FailedTests({ releaseId, runId, analysis, canEdit }: { releaseId
           {tests.map((t) => (
             <li key={t.name}>
               <span className="font-mono">{t.name}</span>
+              <SearchedFor test={t} />
               {t.bugs.length === 0 ? (
                 <span className="ml-2 text-amber-800 dark:text-amber-300">no bug found</span>
               ) : (
@@ -107,6 +108,18 @@ export function FailedTests({ releaseId, runId, analysis, canEdit }: { releaseId
         </ul>
       )}
     </div>
+  )
+}
+
+/** What Jira was searched for: the script name / IDs. */
+export function SearchedFor({ test }: { test: FailedTestRef }) {
+  const ids = test.ids ?? []
+  if (!ids.length) return null
+  return (
+    <span className="ml-2 text-muted-foreground">
+      script <span className="font-mono text-foreground">{test.script ?? ids[0]}</span>
+      {ids.filter((id) => id !== test.script).length > 0 && <> · also searched {ids.filter((id) => id !== test.script).join(', ')}</>}
+    </span>
   )
 }
 

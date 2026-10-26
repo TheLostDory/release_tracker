@@ -236,6 +236,7 @@ export interface RawSearchIssue {
     summary?: string
     description?: unknown
     labels?: string[]
+    comment?: unknown
     status?: { name?: string; statusCategory?: { key?: string } }
     issuetype?: { name?: string }
     issuelinks?: { inwardIssue?: RawLinkedIssue; outwardIssue?: RawLinkedIssue }[]

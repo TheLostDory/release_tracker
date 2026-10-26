@@ -72,10 +72,17 @@ export interface FoundBug {
   via: string
 }
 
+/** A failed test, and the script name / IDs it was looked up by in Jira (none: by its name). */
+export interface FailedTestRef {
+  name: string
+  script?: string
+  ids?: string[]
+}
+
 export interface TestAnalysis {
   run_id: string
   state: 'pending' | 'done' | 'failed'
-  result: { reportUrl: string; runResult: string | null; failedTests: { name: string; bugs: FoundBug[] }[]; notes: string[] } | null
+  result: { reportUrl: string; runResult: string | null; failedTests: (FailedTestRef & { bugs: FoundBug[] })[]; notes: string[] } | null
   error: string | null
   analyzed_at: string | null
 }
@@ -84,4 +91,4 @@ export const listTestAnalyses = (releaseId: string) => api.get<TestAnalysis[]>(`
 export const analyzeRun = ({ runId, reportUrl }: { runId: string; reportUrl?: string }) =>
   api.post(`/jenkins/followed/${runId}/analyze`, reportUrl ? { reportUrl } : {})
 export const previewTestReport = (projectId: string, reportUrl: string, pattern: string) =>
-  api.post<{ failedTests: string[]; how: string[] }>(`/projects/${projectId}/test-report/preview`, { reportUrl, pattern })
+  api.post<{ failedTests: FailedTestRef[]; how: string[] }>(`/projects/${projectId}/test-report/preview`, { reportUrl, pattern })

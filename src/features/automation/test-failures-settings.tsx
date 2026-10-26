@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toUserMessage } from '@/lib/errors'
 import { previewTestReport, type AutomationSettings } from './api'
+import { SearchedFor } from './failed-tests'
 
 type Settings = AutomationSettings['testFailures']
 
@@ -97,7 +98,10 @@ export function TestFailuresSettings({ projectId, value, onChange }: { projectId
                 <span className="text-muted-foreground">{preview.data.failedTests.length} failed tests found:</span>
                 <ul className="mt-1 max-h-40 list-disc overflow-y-auto pl-5 font-mono">
                   {preview.data.failedTests.map((t) => (
-                    <li key={t}>{t}</li>
+                    <li key={t.name}>
+                      {t.name}
+                      <SearchedFor test={t} />
+                    </li>
                   ))}
                 </ul>
               </>

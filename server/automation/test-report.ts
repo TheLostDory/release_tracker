@@ -104,6 +104,30 @@ export function keysInTestName(name: string, projectKey: string | null): string[
   return [...keys]
 }
 
+/** A failed test: its name as shown, and what identifies its script in Jira. */
+export interface FailedTestRef {
+  name: string
+  /** The test script (Gauge: the spec file; "TC_12345" for specs/TC_12345/case.spec). */
+  script?: string
+  /** Searched in Jira as written: the script, and tags that look like test IDs. None: searched by the name. */
+  ids: string[]
+}
+
+/** Tests known by their names only (no script / ID). */
+export const byName = (names: string[]): FailedTestRef[] => names.map((name) => ({ name, ids: [] }))
+
+const GENERIC_FILE = /^(case|index|spec|specs|test|tests|main|script|default)$/i
+
+/** The script's name or ID from its path: "specs/TC_12345/case.spec" → "TC_12345", "specs/login_flow.html" → "login_flow". */
+export function scriptId(path: string): string {
+  const parts = path.split(/[\\/]/).map((p) => p.trim()).filter(Boolean)
+  const file = (parts.at(-1) ?? '').replace(/\.(spec|md|cpt|html?)$/i, '')
+  return GENERIC_FILE.test(file) && parts.length > 1 ? parts.at(-2)! : file
+}
+
+/** Tags that look like test IDs ("TC-123", "testid_456"), not "smoke" or "regression". */
+export const idTags = (tags: string[]) => tags.map((t) => t.trim().replace(/^@/, '')).filter((t) => /\d/.test(t) && t.length >= 3 && t.length <= 80)
+
 /** Lowercase words only: "com.acme.Login_Test#ssoTimeout()" → "com acme login test ssotimeout". */
 export const normalizeName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 

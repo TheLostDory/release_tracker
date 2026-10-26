@@ -95,14 +95,16 @@ export async function fakeJira({ https = false } = {}) {
     const issue = issues('10001')[n - 1]!
     res.json({ ...issue, fields: { ...issue.fields, fixVersions: [versionRef('10001')] } })
   })
-  // Failed HIT tests: a bug that mentions one, a decoy that doesn't really, a test case linked to a field bug.
+  // Failed HIT tests: a bug that mentions one (by name and script ID), a decoy that doesn't really, a test case
+  // (labelled with its script ID) linked to a field bug.
   const issue = (key: string, summary: string, type: string, extra: object = {}) => ({
     key,
     fields: { summary, issuetype: { name: type }, status: { name: 'Open', statusCategory: { key: 'new' } }, labels: [], description: null, ...extra },
   })
-  const checkoutBug = issue('ABC-300', 'Checkout times out', 'Bug', { description: 'Fails in HIT-Checkout timeout since build 41.' })
-  const checkoutDecoy = issue('ABC-301', 'Checkout page is slow', 'Bug')
+  const checkoutBug = issue('ABC-300', 'Checkout times out', 'Bug', { description: 'Fails in HIT-Checkout timeout (TC_101) since build 41.' })
+  const checkoutDecoy = issue('ABC-301', 'Checkout page is slow', 'Bug', { description: 'Seen in TC_1010.' })
   const searchCase = issue('ABC-200', 'HIT-Search filters', 'Test', {
+    labels: ['TC_102'],
     issuelinks: [{ outwardIssue: { key: 'ABC-201', fields: { summary: 'Filters reset on mobile', issuetype: { name: 'Field Bug' }, status: { name: 'In Progress', statusCategory: { key: 'indeterminate' } } } } }],
   })
   // Full-text search ("text ~") finds the login bug, and issues for failed HIT tests.
@@ -110,7 +112,11 @@ export async function fakeJira({ https = false } = {}) {
     ...(/text ~ "[^"]*login[^"]*"/i.test(jql) ? [login] : []),
     ...(/hit checkout timeout/.test(jql) ? [checkoutBug, checkoutDecoy] : []),
     ...(/hit search filters/.test(jql) ? [searchCase] : []),
+    // Gauge scripts: Jira finds TC_1010 too (fuzzy); labels aren't in the text search.
+    ...(/text ~ "\\"TC_101\\""/.test(jql) ? [checkoutBug, checkoutDecoy] : []),
+    ...(/labels in \([^)]*"TC_102"/.test(jql) ? [searchCase] : []),
   ]
+  const isSearch = (jql: string) => jql.includes('text ~') || jql.includes('labels in')
   app.use((req, _res, next) => {
     const jql = String(req.body?.jql ?? req.query.jql ?? '')
     if (jql.includes('text ~')) searches.push(jql)
@@ -119,7 +125,7 @@ export async function fakeJira({ https = false } = {}) {
 
   // Cloud: token pagination.
   app.post('/rest/api/3/search/jql', (req, res) => {
-    if (req.body.jql.includes('text ~')) return void res.json({ issues: textSearch(req.body.jql), isLast: true })
+    if (isSearch(req.body.jql)) return void res.json({ issues: textSearch(req.body.jql), isLast: true })
     const all = issues(versionOf(req.body.jql))
     const start = req.body.nextPageToken ? Number(req.body.nextPageToken) : 0
     const page = all.slice(start, start + 100)
@@ -128,7 +134,7 @@ export async function fakeJira({ https = false } = {}) {
   })
   // Server / Data Center: offset pagination.
   app.get('/rest/api/2/search', (req, res) => {
-    if (String(req.query.jql).includes('text ~')) return void res.json({ issues: textSearch(String(req.query.jql)), total: 1, startAt: 0 })
+    if (isSearch(String(req.query.jql))) return void res.json({ issues: textSearch(String(req.query.jql)), total: 1, startAt: 0 })
     const all = issues(versionOf(String(req.query.jql)))
     const startAt = Number(req.query.startAt ?? 0)
     res.json({ issues: all.slice(startAt, startAt + 100), total: all.length, startAt, maxResults: 100 })
@@ -246,7 +252,7 @@ export async function fakeJenkins() {
   resourceApp.get('/static/t0k3n/js/app.js', (_req, res) => void res.type('application/javascript').send('function render(){ /* draws the report */ }'))
   resourceApp.get('/static/t0k3n/data/result.js', (_req, res) =>
     void res.type('application/javascript').send(
-      `var gaugeExecutionResult = ${JSON.stringify({ suiteResult: { specResults: [{ specHeading: 'Checkout', scenarios: [{ scenarioHeading: 'HIT-Checkout timeout', executionStatus: 'fail' }, { scenarioHeading: 'Pay', executionStatus: 'pass' }] }] } })};`,
+      `var gaugeExecutionResult = ${JSON.stringify({ suiteResult: { specResults: [{ specHeading: 'Checkout', fileName: '/ws/specs/TC_101/case.spec', scenarios: [{ scenarioHeading: 'HIT-Checkout timeout', executionStatus: 'fail' }, { scenarioHeading: 'Pay', executionStatus: 'pass' }] }] } })};`,
     ),
   )
   const resource = await listen(resourceApp)
@@ -329,19 +335,19 @@ export async function fakeJenkins() {
   // Gauge reports (HTML Publisher): wrapper page with a frame, overview, spec pages, result data.
   const wrapper = '<html><body><div>HTML Report</div><iframe id="myframe" src="index.html"></iframe></body></html>'
   const gaugeIndex = `<html><head><title>Gauge Report</title></head><body><ul id="listOfSpecifications">
-    <li class="spec-name passed"><a href="specs/login.html">Login</a></li>
-    <li class="spec-name failed"><a href="specs/checkout.html">Checkout</a></li>
-    <li class="spec-name failed"><a href="specs/search.html">Search</a></li></ul></body></html>`
+    <li class="spec-name passed"><a href="specs/TC_100/case.html">Login</a></li>
+    <li class="spec-name failed"><a href="specs/TC_101/case.html">Checkout</a></li>
+    <li class="spec-name failed"><a href="specs/TC_102/case.html">Search</a></li></ul></body></html>`
   const gaugePages: Record<string, string> = {
     // Build page: Jenkins' own links plus the HTML Publisher's.
     '/job/qa/job/gauge-hit/5/': '<a href="/job/qa/job/gauge-hit/5/console">Console Output</a><a href="/job/qa/job/gauge-hit/5/HTML_20Report/">HTML Report</a>',
     '/job/qa/job/gauge-hit/5/HTML_20Report/': wrapper,
     '/job/qa/job/gauge-hit/5/HTML_20Report/index.html': gaugeIndex,
-    '/job/qa/job/gauge-hit/5/HTML_20Report/specs/checkout.html': `<h1>Checkout</h1>
+    '/job/qa/job/gauge-hit/5/HTML_20Report/specs/TC_101/case.html': `<h1>Checkout</h1><div class="spec-filename">specs/TC_101/case.spec</div>
       <div class="scenario-container passed"><h3>Pay by card</h3></div>
       <div class="scenario-container failed"><h3>HIT-Checkout timeout</h3>
         <img alt="failure screenshot" src="data:image/png;base64,${'A'.repeat(7 * 1024 * 1024)}"></div>`,
-    '/job/qa/job/gauge-hit/5/HTML_20Report/specs/search.html': `<h1>Search</h1>
+    '/job/qa/job/gauge-hit/5/HTML_20Report/specs/TC_102/case.html': `<h1>Search</h1>
       <div class="scenario-container failed"><h3>HIT-Search filters</h3></div>`,
     // Result data next to the report (recent Gauge versions).
     // Newer HTML Publisher: empty frame filled by tabs, plus a Zip download.
@@ -351,12 +357,12 @@ export async function fakeJenkins() {
       <script>function updateBody(id){ document.getElementById('myframe').src = document.getElementById(id).getAttribute('value') }</script></body></html>`,
     '/job/qa/job/gauge-load/3/HTML_20Report/index.html': gaugeIndex,
     '/job/qa/job/gauge-load/3/HTML_20Report/js/result.js': `var gaugeExecutionResult = ${JSON.stringify({
-      suiteResult: { specResults: [{ specHeading: 'Load', scenarios: [{ scenarioHeading: 'test_export_ABC_42', executionStatus: 'fail' }, { scenarioHeading: 'Peak', executionStatus: 'pass' }] }] },
+      suiteResult: { specResults: [{ specHeading: 'Load', fileName: '/ws/specs/TC_104/case.spec', tags: ['regression', 'TC-9001'], scenarios: [{ scenarioHeading: 'test_export_ABC_42', executionStatus: 'fail' }, { scenarioHeading: 'Peak', executionStatus: 'pass' }] }] },
     })};`,
     // Only the job's latest report.
     '/job/qa/job/gauge-latest/HTML_20Report/': wrapper,
-    '/job/qa/job/gauge-latest/HTML_20Report/index.html': gaugeIndex.replace(/failed/g, 'passed').replace('Login</a>', 'Login</a></li><li class="spec-name failed"><a href="specs/search.html">Search</a>'),
-    '/job/qa/job/gauge-latest/HTML_20Report/specs/search.html': '<h1>Search</h1><div class="scenario-container failed"><h3>HIT-No bug yet</h3></div>',
+    '/job/qa/job/gauge-latest/HTML_20Report/index.html': gaugeIndex.replace(/failed/g, 'passed').replace('Login</a>', 'Login</a></li><li class="spec-name failed"><a href="specs/TC_103/case.html">Search</a>'),
+    '/job/qa/job/gauge-latest/HTML_20Report/specs/TC_103/case.html': '<h1>Search</h1><div class="scenario-container failed"><h3>HIT-No bug yet</h3></div>',
   }
   // Failed spec pages all named case.html, whose downloads get cut off (huge screenshots).
   gaugePages['/job/qa/job/gauge-cut/4/HTML_20Report/index.html'] = `<html><head><title>Gauge Report</title></head><body><ul>

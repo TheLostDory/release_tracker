@@ -1,9 +1,10 @@
-import { decodeEntities, textOf } from './test-report.js'
+import { decodeEntities, idTags, scriptId, textOf, type FailedTestRef } from './test-report.js'
 
 /**
  * Gauge (gauge.org) HTML reports: an overview page listing the specs, one page
  * per spec with its scenarios, and (in recent versions) the whole result as
- * JSON in js/result.js. Failed tests are named "Spec: Scenario". Pure (tested).
+ * JSON in js/result.js. Failed tests are named "Spec: Scenario" and known in
+ * Jira by their script (the spec file) and ID tags. Pure (tested).
  */
 
 /** Whether a page looks like a Gauge HTML report. */
@@ -11,13 +12,25 @@ export const isGaugeReport = (html: string) => /gauge/i.test(html)
 
 const name = (spec: string, scenario: string) => (spec ? `${spec.trim()}: ${scenario.trim()}` : scenario.trim())
 
+/** A failed scenario, searched in Jira by its script and ID tags. */
+function ref(spec: string, scenario: string, script: string | undefined, tags: string[]): FailedTestRef {
+  return { name: name(spec, scenario), ...(script ? { script } : {}), ids: [...new Set([...(script ? [script] : []), ...idTags(tags)])] }
+}
+
+const addRef = (out: FailedTestRef[], t: FailedTestRef) => {
+  if (!out.some((x) => x.name === t.name)) out.push(t)
+}
+
 interface GaugeScenario {
   scenarioHeading?: string
   executionStatus?: string
   failed?: boolean
+  tags?: string[]
 }
 interface GaugeSpec {
   specHeading?: string
+  fileName?: string
+  tags?: string[]
   scenarios?: GaugeScenario[]
 }
 
@@ -26,7 +39,7 @@ interface GaugeSpec {
  * ("var gaugeExecutionResult = {…}") or json-report's result.json. Null when
  * the text isn't that.
  */
-export function failedFromGaugeResult(text: string): string[] | null {
+export function failedFromGaugeResult(text: string): FailedTestRef[] | null {
   const start = text.indexOf('{')
   if (start === -1) return null
   let data: { suiteResult?: { specResults?: GaugeSpec[] }; specResults?: GaugeSpec[] }
@@ -37,11 +50,16 @@ export function failedFromGaugeResult(text: string): string[] | null {
   }
   const specs = data.suiteResult?.specResults ?? data.specResults
   if (!Array.isArray(specs)) return null
-  const out: string[] = []
+  const out: FailedTestRef[] = []
   for (const spec of specs) {
+    const script = spec.fileName ? scriptId(spec.fileName) : undefined
     for (const sc of spec.scenarios ?? []) {
       const failed = sc.failed === true || /^fail/i.test(sc.executionStatus ?? '')
-      if (failed && sc.scenarioHeading) out.push(name(spec.specHeading ?? '', sc.scenarioHeading))
+      if (!failed || !sc.scenarioHeading) continue
+      const t = ref(spec.specHeading ?? '', sc.scenarioHeading, script, [...(spec.tags ?? []), ...(sc.tags ?? [])])
+      // No file name or ID tags: the spec's name stands for the script.
+      if (!t.ids.length && spec.specHeading?.trim()) t.ids.push(spec.specHeading.trim())
+      addRef(out, t)
     }
   }
   return out
@@ -75,20 +93,48 @@ export function failedSpecLinks(indexHtml: string, indexUrl: string): string[] {
   return links
 }
 
-/** Failed scenarios on a Gauge spec page, named with the spec heading. */
-export function failedScenariosOnSpecPage(specHtml: string): string[] {
-  const specHeading = textOf(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(specHtml)?.[1] ?? '') || textOf(/class\s*=\s*["'][^"']*spec-?(heading|name)[^"']*["'][^>]*>([\s\S]*?)</i.exec(specHtml)?.[2] ?? '')
+/** Tags shown in a block ("Tags: TC_101, smoke"): the spans in it, else its text. */
+function tagsIn(html: string): string[] {
   const out: string[] = []
+  for (const m of html.matchAll(/<(div|span|ul|p)\b[^>]*class\s*=\s*["']([^"']*)["'][^>]*>([\s\S]*?)<\/\1>/gi)) {
+    if (!/(^|[\s_-])tags?($|[\s_-])/i.test(m[2]!)) continue
+    const spans = [...m[3]!.matchAll(/<(span|li|a)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((x) => textOf(x[2]!)).filter(Boolean)
+    out.push(...(spans.length ? spans : textOf(m[3]!).replace(/^tags\s*:?/i, '').split(/[,\s]+/)))
+  }
+  return out.filter(Boolean)
+}
+
+const scenarioOpen = /<(div|section|li|article)\b([^>]*)>/gi
+
+/**
+ * Failed scenarios on a Gauge spec page, named with the spec heading, with
+ * the spec file (when the page shows it) and the spec's and scenario's tags.
+ */
+export function failedScenariosOnSpecPage(specHtml: string): FailedTestRef[] {
+  const specHeading = textOf(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(specHtml)?.[1] ?? '') || textOf(/class\s*=\s*["'][^"']*spec-?(heading|name)[^"']*["'][^>]*>([\s\S]*?)</i.exec(specHtml)?.[2] ?? '')
+  // Scenario blocks carry a status (passed / failed / skipped); their parts (scenario-head, scenario_tags) don't.
+  const scenarios = [...specHtml.matchAll(scenarioOpen)].filter((m) => /scenario/i.test(m[2] ?? '') && /\b(pass|passed|fail|failed|failure|skip|skipped)\b/i.test(m[2] ?? ''))
+  // Before the first scenario: the spec's file and tags.
+  const head = specHtml.slice(0, Math.min(scenarios[0]?.index ?? specHtml.length, 200_000))
+  // The spec file, as the page shows it (an element whose class says file name).
+  const fileBox = /class\s*=\s*["'][^"']*file[^"']*["'][^>]*>([\s\S]{0,600})/i.exec(head)?.[1] ?? ''
+  const file = /([^\s<>"']+\.(?:spec|cpt|md))(?![\w.])/i.exec(fileBox)?.[1]
+  const script = file ? scriptId(file) : undefined
+  const specTags = tagsIn(head)
+  const out: FailedTestRef[] = []
   // Scenario blocks marked failed: their first heading (or an element named like a scenario heading).
-  for (const m of specHtml.matchAll(/<(div|section|li|article)\b([^>]*)>/gi)) {
+  for (const [i, m] of scenarios.entries()) {
     const attrs = m[2] ?? ''
-    if (!/scenario/i.test(attrs) || !failedClass.test(attrs)) continue
-    const after = specHtml.slice(m.index! + m[0].length, m.index! + m[0].length + 4000)
+    if (!failedClass.test(attrs)) continue
+    const start = m.index! + m[0].length
+    const after = specHtml.slice(start, Math.min(start + 4000, scenarios[i + 1]?.index ?? Infinity))
     const heading =
       /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i.exec(after)?.[1] ??
       /<[a-z]+\b[^>]*class\s*=\s*["'][^"']*scenario-?(?:name|head|heading|title)[^"']*["'][^>]*>([\s\S]*?)<\/[a-z]+>/i.exec(after)?.[1]
     const text = textOf(heading ?? '')
-    if (text && !out.includes(name(specHeading, text))) out.push(name(specHeading, text))
+    // Tags come right after the heading, before the steps (and their screenshots).
+    const own = specHtml.slice(start, Math.min(start + 20_000, scenarios[i + 1]?.index ?? Infinity))
+    if (text) addRef(out, ref(specHeading, text, script, [...specTags, ...tagsIn(own)]))
   }
   return out
 }
@@ -128,7 +174,7 @@ export const inlineScripts = (html: string) => [...html.matchAll(/<script\b(?![^
  * Gauge result data anywhere in a script: the object holding "specResults"
  * (assigned to a variable, passed to a function, or plain JSON). Null if none.
  */
-export function failedFromScript(text: string): string[] | null {
+export function failedFromScript(text: string): FailedTestRef[] | null {
   const at = text.search(/["']?specResults["']?\s*:/)
   if (at === -1) return null
   // Walk back to each "{" before it and try the balanced object from there (outermost first).
@@ -167,8 +213,12 @@ function matchingBrace(text: string, start: number): number {
   return -1
 }
 
-/** Failed specs with their names as the overview shows them (falls back to the file's folder). */
-export function failedSpecs(indexHtml: string, indexUrl: string): { url: string; name: string }[] {
+/**
+ * Failed specs with their names as the overview shows them (falls back to
+ * the file's folder) and their script: the file, or its folder when the
+ * file is generic ("specs/TC_12345/case.html" → TC_12345).
+ */
+export function failedSpecs(indexHtml: string, indexUrl: string): { url: string; name: string; script: string }[] {
   const names = new Map<string, string>()
   for (const a of indexHtml.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
     try {
@@ -181,10 +231,8 @@ export function failedSpecs(indexHtml: string, indexUrl: string): { url: string;
     }
   }
   return failedSpecLinks(indexHtml, indexUrl).map((url) => {
-    const parts = decodeURIComponent(new URL(url).pathname).split('/').filter(Boolean)
-    const file = parts.at(-1)!.replace(/\.html?$/i, '')
     // "case.html" everywhere: the folder says more than the file.
-    const fallback = (/^(case|index|spec|test)$/i.test(file) && parts.length > 1 ? parts.at(-2)! : file).replace(/[_-]+/g, ' ')
-    return { url, name: names.get(url) || fallback }
+    const script = scriptId(decodeURIComponent(new URL(url).pathname))
+    return { url, name: names.get(url) || script.replace(/[_-]+/g, ' '), script }
   })
 }
