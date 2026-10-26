@@ -255,6 +255,26 @@ Merges of `main` or other release branches are set apart. So are the
 individual commits inside pull requests. Results are cached for 2 minutes;
 *Refresh* reads GitHub and Jira again.
 
+## Automation
+
+**Settings → Project → Automation** (admins and owners). Background tasks run
+while the app is running; anything missed while it was off is caught up when
+it starts.
+
+| Automation | What it does | Default |
+|---|---|---|
+| **Plan step dates** | New releases get each step's date counted back from the target (days before, per step; weekends → Friday). Moving the target moves open steps. *Plan dates* on a release re-plans it. | on |
+| **Start Jenkins jobs** | List the Load Test / Longevity / HIT / other jobs once (parameters may use `{{version}}`, `{{name}}`). *Start jobs* in the Automated jobs step starts them and follows the runs they become (no links to paste); optionally starts by itself when RC creation completes. | jobs: none; auto-start: off |
+| **Complete steps automatically** | RC creation when the RC branch exists on GitHub (every repository); Deployment when the Jira version is released (its date becomes the deployment date). Every 5 min. | on |
+| **Follow Jira** | Target dates and renamed versions follow the linked Jira versions; optionally new unreleased versions become releases (stale ones skipped). Every 10 min. | dates: on; import: off |
+| **Code vs Jira in the background** | Releases with a comparison set up are re-checked hourly; Teams is told when differences go up. | on |
+| **Email drafts** | *Draft email* on RC email, RC escalation email and Release email: written from the release (Jira content, test results, Code vs Jira, open items). Copy (rich text for Outlook) or open in the mail app, then *Mark as sent*. Default recipients per email. | always |
+
+Teams (Settings → Integrations → Microsoft Teams) also sends **Due tomorrow**
+reminders each morning and **Approval needed** when approval is requested,
+besides blocked steps, Jenkins results, Code vs Jira alerts and the daily
+summary.
+
 ## Microsoft Teams notifications
 
 Each project can post to one Teams channel:
