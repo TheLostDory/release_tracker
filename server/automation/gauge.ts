@@ -56,7 +56,13 @@ export function failedSpecLinks(indexHtml: string, indexUrl: string): string[] {
   const blocks = [
     ...indexHtml.matchAll(/<(li|tr|div)\b([^>]*)>([\s\S]*?)<\/\1>/gi),
   ].filter((b) => failedClass.test(b[2] ?? ''))
-  const anchors = [...blocks.flatMap((b) => [...b[3]!.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["']/gi)]), ...indexHtml.matchAll(/<a\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bfail)[^>]*href\s*=\s*["']([^"']+)["']/gi)]
+  // Gauge's own template wraps each spec item in its link: <a href="…"><li class="spec-name failed">…</li></a>.
+  const wrapping = [...indexHtml.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].filter((a) => failedClass.test(a[2] ?? ''))
+  const anchors = [
+    ...blocks.flatMap((b) => [...b[3]!.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["']/gi)]),
+    ...wrapping,
+    ...indexHtml.matchAll(/<a\b(?=[^>]*\bclass\s*=\s*["'][^"']*\bfail)[^>]*href\s*=\s*["']([^"']+)["']/gi),
+  ]
   for (const a of anchors) {
     try {
       const url = new URL(decodeEntities(a[1]!), indexUrl)
@@ -85,4 +91,17 @@ export function failedScenariosOnSpecPage(specHtml: string): string[] {
     if (text && !out.includes(name(specHeading, text))) out.push(name(specHeading, text))
   }
   return out
+}
+
+/** What the overview page shows: spec links in all, and how many are marked failed (for the settings "Test" tool). */
+export function specCounts(indexHtml: string, indexUrl: string): { specs: number; failed: number } {
+  const all = new Set<string>()
+  for (const a of indexHtml.matchAll(/<a\b[^>]*href\s*=\s*["']([^"'#]+\.html?)[^"']*["']/gi)) {
+    try {
+      all.add(new URL(decodeEntities(a[1]!), indexUrl).toString())
+    } catch {
+      // not a link
+    }
+  }
+  return { specs: all.size, failed: failedSpecLinks(indexHtml, indexUrl).length }
 }

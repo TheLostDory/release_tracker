@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { failedFromGaugeResult, failedScenariosOnSpecPage, failedSpecLinks, isGaugeReport } from './gauge.js'
+import { failedFromGaugeResult, failedScenariosOnSpecPage, failedSpecLinks, isGaugeReport, specCounts } from './gauge.js'
 
 describe('Gauge reports', () => {
   it('reads failed scenarios from result.js / result.json', () => {
@@ -34,5 +34,17 @@ describe('Gauge reports', () => {
       <div class="scenario-container passed"><h3 class="head">Pay by card</h3></div>
       <div class="scenario-container failed"><div class="scenario-head"><h3 class="head">Pay &amp; timeout</h3></div><pre>stack</pre></div>`
     expect(failedScenariosOnSpecPage(spec)).toEqual(['Checkout: Pay & timeout'])
+  })
+
+  it("reads Gauge's own template, where the link wraps the spec item", () => {
+    const index = `<div id="listOfSpecifications"><ul id="scenarios" class="spec-list">
+      <a href="specs/login.html"><li class='spec-name passed'><span class="scenarioname">Login</span></li></a>
+      <a href="specs/checkout.html"><li class='spec-name failed'><span class="scenarioname">Checkout</span></li></a>
+      <a href="specs/export.html"><li class='spec-name failed'><span class="scenarioname">Export</span></li></a>
+    </ul></div>`
+    expect(failedSpecLinks(index, 'https://ci/r/index.html')).toEqual(['https://ci/r/specs/checkout.html', 'https://ci/r/specs/export.html'])
+    expect(specCounts(index, 'https://ci/r/index.html')).toEqual({ specs: 3, failed: 2 })
+    // Spec pages name scenarios with a span.
+    expect(failedScenariosOnSpecPage(`<h1>Export</h1><div class="scenario-container failed"><span class="scenarioName">CSV export</span></div>`)).toEqual(['Export: CSV export'])
   })
 })

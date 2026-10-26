@@ -84,4 +84,4 @@ export const listTestAnalyses = (releaseId: string) => api.get<TestAnalysis[]>(`
 export const analyzeRun = ({ runId, reportUrl }: { runId: string; reportUrl?: string }) =>
   api.post(`/jenkins/followed/${runId}/analyze`, reportUrl ? { reportUrl } : {})
 export const previewTestReport = (projectId: string, reportUrl: string, pattern: string) =>
-  api.post<{ failedTests: string[] }>(`/projects/${projectId}/test-report/preview`, { reportUrl, pattern })
+  api.post<{ failedTests: string[]; how: string[] }>(`/projects/${projectId}/test-report/preview`, { reportUrl, pattern })

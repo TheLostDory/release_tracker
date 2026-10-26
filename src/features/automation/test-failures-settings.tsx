@@ -102,6 +102,16 @@ export function TestFailuresSettings({ projectId, value, onChange }: { projectId
                 </ul>
               </>
             )}
+            <details className="mt-1">
+              <summary className="cursor-pointer text-muted-foreground">How it was read</summary>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+                {preview.data.how.map((line, i) => (
+                  <li key={i} className="break-all">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </details>
           </div>
         )}
       </div>

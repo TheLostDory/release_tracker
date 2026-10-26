@@ -115,6 +115,7 @@ export function automationRoutes(db: Db, config: Config) {
         throw new HttpError(422, 'The pattern is not a valid regular expression.', 'invalid')
       }
     }
+    const how: string[] = []
     const failedTests = await asUser(db, req, async (tx) => {
       const role = await tx.query<{ ok: boolean }>("select coalesce(project_role_of($1) >= 'ADMIN'::project_role, false) as ok", [id])
       if (!role.rows[0]?.ok) throw forbidden()
@@ -125,12 +126,13 @@ export function automationRoutes(db: Db, config: Config) {
       let html = await jenkinsGetText(jenkins, url).catch(asHttpError)
       const frame = framedReport(html, url)
       if (frame && new URL(frame).host === new URL(url).host) {
+        how.push(`The page shows the report in a frame: followed it to ${frame}.`)
         url = frame
         html = await jenkinsGetText(jenkins, url).catch(asHttpError)
       }
-      return readFailedTests(jenkins, url, html, body.pattern || null).catch(asHttpError)
+      return readFailedTests(jenkins, url, html, body.pattern || null, how).catch(asHttpError)
     })
-    res.json({ failedTests })
+    res.json({ failedTests, how })
   })
 
   return router
