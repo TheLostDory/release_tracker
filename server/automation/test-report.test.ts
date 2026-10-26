@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractFailedTests, keysInTestName, searchPhrase } from './test-report.js'
+import { extractFailedTests, framedReport, keysInTestName, reportLinksFromBuildPage, searchPhrase } from './test-report.js'
 
 describe('extractFailedTests', () => {
   it('reads failed rows of a results table, skipping passed rows and headers', () => {
@@ -43,5 +43,29 @@ describe('test names', () => {
     expect(searchPhrase('com.acme.checkout.CheckoutTest.paymentTimeout')).toBe('paymenttimeout')
     expect(searchPhrase('HIT-Checkout timeout')).toBe('hit checkout timeout')
     expect(searchPhrase('a.b.ok')).toBe('a b ok')
+  })
+})
+
+describe('finding the report on the build page', () => {
+  const build = 'https://ci.example.com/jenkins/job/qa/job/hit/42/'
+  const page = `<div id="tasks">
+    <a href="/jenkins/job/qa/job/hit/42/console">Console Output</a>
+    <a href="/jenkins/job/qa/job/hit/42/changes">Changes</a>
+    <a href="/jenkins/job/qa/job/hit/42/HIT_20Report/">HIT Report</a>
+    <a href="/jenkins/job/qa/job/hit/42/artifact/">Build Artifacts</a>
+    <a href="/jenkins/job/qa/job/hit/42/Coverage/">Coverage</a>
+    <a href="/jenkins/job/qa/job/hit/41/">Previous build</a>
+    <a href="https://elsewhere.example.com/report/">External report</a>
+  </div>`
+
+  it('finds report links under the build (not Jenkins pages, other builds or other hosts)', () => {
+    expect(reportLinksFromBuildPage(page, build)).toEqual(['https://ci.example.com/jenkins/job/qa/job/hit/42/HIT_20Report/'])
+  })
+
+  it('follows the frame HTML Publisher wraps reports in', () => {
+    expect(framedReport('<html><body><iframe id="myframe" src="index.html"></iframe></body></html>', 'https://ci/job/x/1/HIT_20Report/')).toBe(
+      'https://ci/job/x/1/HIT_20Report/index.html',
+    )
+    expect(framedReport('<html><body>No frame</body></html>', 'https://ci/x/')).toBeNull()
   })
 })

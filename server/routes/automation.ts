@@ -2,8 +2,8 @@ import { Router } from 'express'
 import type { Config } from '../config.js'
 import type { Db } from '../db/pool.js'
 import { automationSchema, automationSettings } from '../automation/settings.js'
-import { processTestAnalyses } from '../automation/test-analysis.js'
-import { extractFailedTests } from '../automation/test-report.js'
+import { processTestAnalyses, readFailedTests } from '../automation/test-analysis.js'
+import { framedReport } from '../automation/test-report.js'
 import { processJenkinsStarts } from '../automation/worker.js'
 import { jenkinsGetText } from '../integrations/jenkins.js'
 import { asHttpError } from '../integrations/outbound.js'
@@ -94,8 +94,10 @@ export function automationRoutes(db: Db, config: Config) {
   /** "Check again": re-read the report and look the bugs up now. */
   router.post('/jenkins/followed/:fid/analyze', async (req, res) => {
     const fid = idParam(req, 'fid')
+    // Optionally the report's link, when it can't be found by itself.
+    const { reportUrl } = z.strictObject({ reportUrl: z.string().trim().url().max(2000).optional() }).parse(req.body ?? {})
     const releaseId = await asUser(db, req, async (tx) => {
-      await tx.query('select request_test_analysis($1)', [fid])
+      await tx.query('select request_test_analysis($1, $2)', [fid, reportUrl ?? null])
       return (await tx.query<{ release_id: string }>('select release_id from release_jenkins_builds where id = $1', [fid])).rows[0]?.release_id
     })
     if (releaseId) await processTestAnalyses(db, config, releaseId)
@@ -113,13 +115,22 @@ export function automationRoutes(db: Db, config: Config) {
         throw new HttpError(422, 'The pattern is not a valid regular expression.', 'invalid')
       }
     }
-    const html = await asUser(db, req, async (tx) => {
+    const failedTests = await asUser(db, req, async (tx) => {
       const role = await tx.query<{ ok: boolean }>("select coalesce(project_role_of($1) >= 'ADMIN'::project_role, false) as ok", [id])
       if (!role.rows[0]?.ok) throw forbidden()
       const j = await loadIntegration(tx, config, id, 'JENKINS')
-      return jenkinsGetText(jenkinsConnection(j.row, j.secret), body.reportUrl).catch(asHttpError)
+      const jenkins = jenkinsConnection(j.row, j.secret)
+      // Same reading as the analysis: into HTML Publisher's frame, Gauge reports, the project pattern.
+      let url = body.reportUrl
+      let html = await jenkinsGetText(jenkins, url).catch(asHttpError)
+      const frame = framedReport(html, url)
+      if (frame && new URL(frame).host === new URL(url).host) {
+        url = frame
+        html = await jenkinsGetText(jenkins, url).catch(asHttpError)
+      }
+      return readFailedTests(jenkins, url, html, body.pattern || null).catch(asHttpError)
     })
-    res.json({ failedTests: extractFailedTests(html, body.pattern || null) })
+    res.json({ failedTests })
   })
 
   return router

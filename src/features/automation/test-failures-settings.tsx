@@ -51,6 +51,27 @@ export function TestFailuresSettings({ projectId, value, onChange }: { projectId
         <input type="checkbox" className="size-4 accent-foreground" checked={value.allProjects} onChange={(e) => onChange({ ...value, allProjects: e.target.checked })} />
         Search every Jira project (not only the connected one)
       </label>
+      <div className="space-y-1">
+        <span className="text-xs text-muted-foreground">
+          Where the report is, relative to the build (optional: an .html artifact, HTML Publisher’s <code className="font-mono">HTML_20Report/</code> and report
+          links on the build page are found by themselves; Gauge reports are read spec by spec):
+        </span>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {PURPOSES.filter((p) => value.purposes.includes(p.key)).map((p) => (
+            <label key={p.key} className="flex items-center gap-2 text-xs">
+              <span className="w-20 shrink-0">{p.label}</span>
+              <Input
+                className="h-8 font-mono text-xs"
+                placeholder="found automatically"
+                value={value.reportPaths?.[p.key] ?? ''}
+                onChange={(e) =>
+                  onChange({ ...value, reportPaths: { LOAD_TEST: '', LONGEVITY: '', HIT: '', ...value.reportPaths, [p.key]: e.target.value } })
+                }
+              />
+            </label>
+          ))}
+        </div>
+      </div>
       <label className="block space-y-1">
         <span className="text-xs text-muted-foreground">
           Failed tests in the report: leave empty to read common layouts (rows marked FAIL / FAILED / ERROR), or give a regular expression whose first
@@ -59,7 +80,7 @@ export function TestFailuresSettings({ projectId, value, onChange }: { projectId
         <Input className="h-8 font-mono text-xs" value={value.failedPattern} onChange={(e) => onChange({ ...value, failedPattern: e.target.value })} placeholder="(built-in reading)" />
       </label>
       <div className="space-y-1 rounded-md border border-dashed p-2">
-        <span className="text-xs text-muted-foreground">Try it on a real report (paste the report’s link from Jenkins):</span>
+        <span className="text-xs text-muted-foreground">Try it on a real report (paste its link from Jenkins, e.g. …/job/…/42/HTML_20Report/):</span>
         <div className="flex gap-2">
           <Input className="h-8 text-xs" placeholder="https://jenkins…/job/…/42/artifact/report.html" value={reportUrl} onChange={(e) => setReportUrl(e.target.value)} />
           <Button size="sm" variant="outline" disabled={!reportUrl.trim() || preview.isPending} onClick={() => preview.mutate()}>

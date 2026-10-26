@@ -247,6 +247,10 @@ export async function fakeJenkins() {
     // Test jobs run during the Automated jobs step.
     ['perf/load-test', [{ number: 8, result: 'SUCCESS', building: false, artifacts: [{ relativePath: 'reports/load.html' }] }]],
     ['perf/longevity', [{ number: 20, result: null, building: true }]],
+    // Gauge suites publishing "HTML Report" with the HTML Publisher plugin.
+    ['qa/gauge-hit', [{ number: 5, result: 'FAILURE', building: false }]],
+    ['qa/gauge-load', [{ number: 3, result: 'UNSTABLE', building: false }]],
+    ['qa/gauge-latest', [{ number: 8, result: 'FAILURE', building: false }]],
     // A parent job: each run starts the Load Test, Longevity and HIT jobs.
     ['release/rc-validation', []],
     ['platform/deploy', []],
@@ -306,6 +310,40 @@ export async function fakeJenkins() {
     if (item.number === null) return void res.json({ why: 'Waiting for next available executor', executable: null })
     res.json({ executable: { number: item.number } })
   })
+  // Gauge reports (HTML Publisher): wrapper page with a frame, overview, spec pages, result data.
+  const wrapper = '<html><body><div>HTML Report</div><iframe id="myframe" src="index.html"></iframe></body></html>'
+  const gaugeIndex = `<html><head><title>Gauge Report</title></head><body><ul id="listOfSpecifications">
+    <li class="spec-name passed"><a href="specs/login.html">Login</a></li>
+    <li class="spec-name failed"><a href="specs/checkout.html">Checkout</a></li>
+    <li class="spec-name failed"><a href="specs/search.html">Search</a></li></ul></body></html>`
+  const gaugePages: Record<string, string> = {
+    // Build page: Jenkins' own links plus the HTML Publisher's.
+    '/job/qa/job/gauge-hit/5/': '<a href="/job/qa/job/gauge-hit/5/console">Console Output</a><a href="/job/qa/job/gauge-hit/5/HTML_20Report/">HTML Report</a>',
+    '/job/qa/job/gauge-hit/5/HTML_20Report/': wrapper,
+    '/job/qa/job/gauge-hit/5/HTML_20Report/index.html': gaugeIndex,
+    '/job/qa/job/gauge-hit/5/HTML_20Report/specs/checkout.html': `<h1>Checkout</h1>
+      <div class="scenario-container passed"><h3>Pay by card</h3></div>
+      <div class="scenario-container failed"><h3>HIT-Checkout timeout</h3></div>`,
+    '/job/qa/job/gauge-hit/5/HTML_20Report/specs/search.html': `<h1>Search</h1>
+      <div class="scenario-container failed"><h3>HIT-Search filters</h3></div>`,
+    // Result data next to the report (recent Gauge versions).
+    '/job/qa/job/gauge-load/3/HTML_20Report/': wrapper,
+    '/job/qa/job/gauge-load/3/HTML_20Report/index.html': gaugeIndex,
+    '/job/qa/job/gauge-load/3/HTML_20Report/js/result.js': `var gaugeExecutionResult = ${JSON.stringify({
+      suiteResult: { specResults: [{ specHeading: 'Load', scenarios: [{ scenarioHeading: 'test_export_ABC_42', executionStatus: 'fail' }, { scenarioHeading: 'Peak', executionStatus: 'pass' }] }] },
+    })};`,
+    // Only the job's latest report.
+    '/job/qa/job/gauge-latest/HTML_20Report/': wrapper,
+    '/job/qa/job/gauge-latest/HTML_20Report/index.html': gaugeIndex.replace(/failed/g, 'passed').replace('Login</a>', 'Login</a></li><li class="spec-name failed"><a href="specs/search.html">Search</a>'),
+    '/job/qa/job/gauge-latest/HTML_20Report/specs/search.html': '<h1>Search</h1><div class="scenario-container failed"><h3>HIT-No bug yet</h3></div>',
+  }
+  app.get(/^\/job\/qa\/job\/gauge-/, (req, res, next) => {
+    const page = gaugePages[req.path]
+    if (page) return void res.type(req.path.endsWith('.js') ? 'application/javascript' : 'text/html').send(page)
+    if (req.path.endsWith('/api/json') || req.path.includes('/logText/')) return void next()
+    res.status(404).send('Not found')
+  })
+
   // Report artifacts: the HIT report lists passed and failed test cases.
   app.get(/^((?:\/job\/[^/]+)+)\/(\d+)\/artifact\/(.+)$/, (req, res) => {
     const [, jobPart, , file] = /^((?:\/job\/[^/]+)+)\/(\d+)\/artifact\/(.+)$/.exec(req.path)!

@@ -101,6 +101,11 @@ export const automationSchema = z.strictObject({
       }, 'not a valid regular expression'),
     /** Search every Jira project (field bugs elsewhere), not only the connected one. */
     allProjects: z.boolean(),
+    /** Where the report is, relative to the build (e.g. "HIT_20Report/index.html"), per run type; empty = find it. */
+    reportPaths: z
+      .strictObject({ LOAD_TEST: z.string().max(300), LONGEVITY: z.string().max(300), HIT: z.string().max(300) })
+      .refine((p) => Object.values(p).every((v) => !v.includes('..') && !/^[a-z]+:/i.test(v)), 'use a path relative to the build')
+      .optional(),
   }),
 })
 
@@ -115,7 +120,14 @@ export const DEFAULT_AUTOMATION: AutomationSettings = {
   autoComplete: { rcCreationFromGithub: true, deploymentFromJira: true },
   jiraSync: { importVersions: false, syncDates: true },
   codeCheck: { background: true },
-  testFailures: { enabled: true, purposes: ['HIT', 'LOAD_TEST'], bugTypes: ['Bug', 'Field Bug'], failedPattern: '', allProjects: false },
+  testFailures: {
+    enabled: true,
+    purposes: ['HIT', 'LOAD_TEST'],
+    bugTypes: ['Bug', 'Field Bug'],
+    failedPattern: '',
+    allProjects: false,
+    reportPaths: { LOAD_TEST: '', LONGEVITY: '', HIT: '' },
+  },
 }
 
 /** Stored (possibly partial or older) settings → complete settings. */

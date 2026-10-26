@@ -113,3 +113,49 @@ export function searchPhrase(name: string): string {
   const last = parts.at(-1) ?? name
   return normalizeName(parts.length > 1 && normalizeName(last).length >= 6 ? last : name)
 }
+
+/** Build-page links that are Jenkins' own pages, not reports. */
+const JENKINS_PAGES = new Set([
+  'console', 'consoleFull', 'consoleText', 'changes', 'testReport', 'artifact', 'parameters', 'api', 'ws', 'configure',
+  'timings', 'injectedEnvVars', 'flowGraphTable', 'pipeline-graph', 'pipeline-console', 'replay', 'restart', 'confirmDelete',
+  'rebuild', 'badge', 'execution', 'downstreambuildview', 'previousBuild', 'nextBuild', 'buildTimeTrend', 'cause',
+])
+
+/**
+ * Report pages linked from a Jenkins build page (e.g. the HTML Publisher's
+ * "HIT Report"): links under the build whose text says report / HIT / load
+ * test, best first. Absolute URLs.
+ */
+export function reportLinksFromBuildPage(html: string, buildUrl: string): string[] {
+  const base = new URL(buildUrl)
+  const buildPath = base.pathname.endsWith('/') ? base.pathname : `${base.pathname}/`
+  const scored: { url: string; score: number }[] = []
+  for (const a of html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    let url: URL
+    try {
+      url = new URL(decodeEntities(a[1]!), base)
+    } catch {
+      continue
+    }
+    if (url.host !== base.host || !url.pathname.startsWith(buildPath)) continue
+    const first = url.pathname.slice(buildPath.length).split('/')[0]
+    if (!first || JENKINS_PAGES.has(first) || /^\d+$/.test(first)) continue
+    const text = textOf(a[2]!)
+    const score = (/report/i.test(text) ? 2 : 0) + (/hit|load|longevity|test|result/i.test(`${text} ${first}`) ? 1 : 0)
+    if (score === 0) continue
+    url.hash = ''
+    if (!scored.some((s) => s.url === url.toString())) scored.push({ url: url.toString(), score })
+  }
+  return scored.sort((x, y) => y.score - x.score).map((s) => s.url)
+}
+
+/** HTML Publisher wraps the report in a page with a frame: the frame's address, if any. */
+export function framedReport(html: string, pageUrl: string): string | null {
+  const m = /<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i.exec(html)
+  if (!m) return null
+  try {
+    return new URL(decodeEntities(m[1]!), pageUrl).toString()
+  } catch {
+    return null
+  }
+}

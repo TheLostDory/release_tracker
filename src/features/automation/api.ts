@@ -16,7 +16,15 @@ export interface AutomationSettings {
   autoComplete: { rcCreationFromGithub: boolean; deploymentFromJira: boolean }
   jiraSync: { importVersions: boolean; syncDates: boolean }
   codeCheck: { background: boolean }
-  testFailures: { enabled: boolean; purposes: ('LOAD_TEST' | 'LONGEVITY' | 'HIT')[]; bugTypes: string[]; failedPattern: string; allProjects: boolean }
+  testFailures: {
+    enabled: boolean
+    purposes: ('LOAD_TEST' | 'LONGEVITY' | 'HIT')[]
+    bugTypes: string[]
+    failedPattern: string
+    allProjects: boolean
+    /** Report location relative to the build, per run type ('' = find it). */
+    reportPaths?: Record<'LOAD_TEST' | 'LONGEVITY' | 'HIT', string>
+  }
 }
 
 export const getAutomation = (projectId: string) => api.get<AutomationSettings>(`/projects/${projectId}/automation`)
@@ -73,6 +81,7 @@ export interface TestAnalysis {
 }
 
 export const listTestAnalyses = (releaseId: string) => api.get<TestAnalysis[]>(`/releases/${releaseId}/test-analyses`)
-export const analyzeRun = (runId: string) => api.post(`/jenkins/followed/${runId}/analyze`)
+export const analyzeRun = ({ runId, reportUrl }: { runId: string; reportUrl?: string }) =>
+  api.post(`/jenkins/followed/${runId}/analyze`, reportUrl ? { reportUrl } : {})
 export const previewTestReport = (projectId: string, reportUrl: string, pattern: string) =>
   api.post<{ failedTests: string[] }>(`/projects/${projectId}/test-report/preview`, { reportUrl, pattern })

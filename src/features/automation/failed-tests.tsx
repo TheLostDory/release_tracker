@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Bug, ChevronRight, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { CATEGORY } from '@/features/integrations/jira-status'
 import { safeHttpUrl } from '@/lib/safe-url'
 import { cn } from '@/lib/utils'
@@ -11,11 +12,12 @@ import { useAnalyzeRun } from './queries'
 /** Under a HIT / Load Test run: its failed tests and the Jira bugs linked to each. */
 export function FailedTests({ releaseId, runId, analysis, canEdit }: { releaseId: string; runId: string; analysis: TestAnalysis | undefined; canEdit: boolean }) {
   const [open, setOpen] = useState(false)
+  const [reportUrl, setReportUrl] = useState('')
   const analyze = useAnalyzeRun(releaseId)
   if (!analysis) return null
 
   const again = canEdit && (
-    <Button size="xs" variant="ghost" className="h-6 px-2" disabled={analyze.isPending || analysis.state === 'pending'} onClick={() => analyze.mutate(runId)}>
+    <Button size="xs" variant="ghost" className="h-6 px-2" disabled={analyze.isPending || analysis.state === 'pending'} onClick={() => analyze.mutate({ runId })}>
       <RefreshCw className={cn(analyze.isPending && 'animate-spin')} />
       Check again
     </Button>
@@ -30,9 +32,31 @@ export function FailedTests({ releaseId, runId, analysis, canEdit }: { releaseId
   }
   if (analysis.state === 'failed') {
     return (
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Failed tests couldn’t be checked: {analysis.error}</span>
-        {again}
+      <div className="space-y-1.5 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground">Failed tests couldn’t be checked: {analysis.error}</span>
+          {again}
+        </div>
+        {canEdit && (
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (reportUrl.trim()) analyze.mutate({ runId, reportUrl: reportUrl.trim() })
+            }}
+          >
+            <Input
+              aria-label="Report link"
+              className="h-7 text-xs"
+              placeholder="Report link, e.g. https://jenkins…/job/…/42/HTML_20Report/"
+              value={reportUrl}
+              onChange={(e) => setReportUrl(e.target.value)}
+            />
+            <Button type="submit" size="xs" variant="outline" className="h-7" disabled={!reportUrl.trim() || analyze.isPending}>
+              Use this report
+            </Button>
+          </form>
+        )}
       </div>
     )
   }

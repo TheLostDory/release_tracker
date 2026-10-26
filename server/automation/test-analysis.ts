@@ -6,7 +6,8 @@ import type { JiraAuth, JiraConnection } from '../integrations/jira.js'
 import { OutboundError } from '../integrations/outbound.js'
 import { automationSettings } from './settings.js'
 import { findBugsForTests } from './test-failures.js'
-import { extractFailedTests } from './test-report.js'
+import { failedFromGaugeResult, failedScenariosOnSpecPage, failedSpecLinks, isGaugeReport } from './gauge.js'
+import { extractFailedTests, framedReport, reportLinksFromBuildPage } from './test-report.js'
 
 interface DueAnalysis {
   run_id: string
@@ -18,6 +19,8 @@ interface DueAnalysis {
   status: { reportUrl?: string | null; url?: string; result?: string | null } | null
   attempts: number
   automation: unknown
+  /** A report link pasted for this run. */
+  report_url: string | null
   jenkins_base_url: string
   jenkins_username: string | null
   jenkins_secret: string
@@ -31,6 +34,103 @@ interface DueAnalysis {
   jira_settings: { projectKey?: string } | null
 }
 
+const MAX_SPEC_PAGES = 30
+
+/**
+ * Failed test names in a report page. A project pattern wins; Gauge reports
+ * are read from their result data, else from the failed specs' pages; any
+ * other report with the common layouts.
+ */
+export async function readFailedTests(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null): Promise<string[]> {
+  if (pattern) return extractFailedTests(html, pattern)
+  if (isGaugeReport(html) || /\/HTML_20Report\//i.test(url)) {
+    for (const data of ['js/result.js', '../json-report/result.json']) {
+      try {
+        const found = failedFromGaugeResult(await jenkinsGetText(jenkins, new URL(data, url).toString()))
+        if (found) return found
+      } catch {
+        // not there: read the pages instead
+      }
+    }
+    const specs = failedSpecLinks(html, url).slice(0, MAX_SPEC_PAGES)
+    if (specs.length) {
+      const names: string[] = []
+      for (const spec of specs) {
+        const page = await jenkinsGetText(jenkins, spec).catch(() => '')
+        const found = failedScenariosOnSpecPage(page)
+        const fallback = found.length ? found : extractFailedTests(page)
+        // A failed spec whose scenarios can't be told apart still counts, by its name.
+        const list = fallback.length ? fallback : [decodeURIComponent(spec.split('/').pop()!.replace(/\.html?$/i, '').replace(/[_-]+/g, ' '))]
+        for (const n of list) if (!names.includes(n)) names.push(n)
+      }
+      return names
+    }
+  }
+  return extractFailedTests(html)
+}
+
+/**
+ * The run's report: a link pasted for it, its .html artifact, the project's
+ * path for that kind of run, HTML Publisher's "HTML_20Report/" (the build's,
+ * then the job's latest), or a report page linked on the build — followed
+ * into the frame HTML Publisher wraps it in. Returns the page and what was tried.
+ */
+async function findReport(jenkins: JenkinsConnection, a: DueAnalysis, reportPath: string): Promise<{ url: string | null; html: string | null; tried: string[] }> {
+  const tried: string[] = []
+  const buildUrl = a.status?.url ?? null
+  const read = async (url: string, label: string) => {
+    try {
+      let html = await jenkinsGetText(jenkins, url)
+      // HTML Publisher shows the report inside a frame.
+      const frame = framedReport(html, url)
+      if (frame && new URL(frame).host === new URL(url).host) {
+        html = await jenkinsGetText(jenkins, frame)
+        url = frame
+      }
+      return { url, html }
+    } catch (err) {
+      tried.push(`${label}: ${(err as Error).message}`)
+      return null
+    }
+  }
+
+  if (a.report_url) {
+    const r = await read(a.report_url, 'the pasted link')
+    if (r) return { ...r, tried }
+  }
+  if (a.status?.reportUrl) {
+    const r = await read(a.status.reportUrl, 'the .html artifact')
+    if (r) return { ...r, tried }
+  } else tried.push('no .html artifact')
+  if (buildUrl && reportPath.trim()) {
+    const r = await read(new URL(reportPath.trim().replace(/^\/+/, ''), buildUrl).toString(), `the path ${reportPath.trim()}`)
+    if (r) return { ...r, tried }
+  }
+  if (buildUrl) {
+    const r = await read(new URL('HTML_20Report/', buildUrl).toString(), 'HTML_20Report/ of the build')
+    if (r) return { ...r, tried }
+  }
+  if (buildUrl) {
+    try {
+      const links = reportLinksFromBuildPage(await jenkinsGetText(jenkins, buildUrl), buildUrl)
+      if (!links.length) tried.push('no report link on the build page')
+      for (const link of links.slice(0, 3)) {
+        const r = await read(link, `the build page link ${link}`)
+        if (r) return { ...r, tried }
+      }
+    } catch (err) {
+      tried.push(`the build page: ${(err as Error).message}`)
+    }
+  }
+  if (buildUrl) {
+    // The job's latest report (HTML Publisher without "keep past reports").
+    const jobUrl = buildUrl.replace(/\/\d+\/?$/, '/')
+    const r = await read(new URL('HTML_20Report/', jobUrl).toString(), 'HTML_20Report/ of the job')
+    if (r) return { ...r, tried }
+  }
+  return { url: null, html: null, tried }
+}
+
 /**
  * Finished HIT / Load Test runs: failed tests from the HTML report, then the
  * Jira bugs linked to each. Stored per run; retried a few times on errors.
@@ -42,16 +142,21 @@ export async function processTestAnalyses(db: Db, config: Config, releaseId?: st
   const { rows } = await db.query<DueAnalysis>('select * from test_analyses_due()')
   for (const a of rows.filter((r) => !releaseId || r.release_id === releaseId)) {
     const settings = automationSettings(a.automation).testFailures
-    const reportUrl = a.status?.reportUrl ?? null
     try {
-      if (!reportUrl) {
-        await db.query("select test_analysis_save($1, 'failed', null, $2)", [a.run_id, 'This run has no HTML report (an .html artifact), so its failed tests can’t be read.'])
+      const jenkins: JenkinsConnection = { baseUrl: a.jenkins_base_url, username: a.jenkins_username, secret: decrypt(a.jenkins_secret, key), ca: a.jenkins_ca }
+      const reportPath = (settings.reportPaths as Record<string, string> | undefined)?.[a.purpose] ?? ''
+      const report = await findReport(jenkins, a, reportPath)
+      if (!report.url) {
+        await db.query("select test_analysis_save($1, 'failed', null, $2)", [
+          a.run_id,
+          `No report found (looked at: ${report.tried.join('; ')}). Paste the report’s link below, or set where it is in Settings → Automation.`,
+        ])
         out.failed++
         continue
       }
-      const jenkins: JenkinsConnection = { baseUrl: a.jenkins_base_url, username: a.jenkins_username, secret: decrypt(a.jenkins_secret, key), ca: a.jenkins_ca }
-      const html = await jenkinsGetText(jenkins, reportUrl)
-      const failed = extractFailedTests(html, settings.failedPattern || null)
+      const reportUrl = report.url
+      const html = report.html!
+      const failed = await readFailedTests(jenkins, reportUrl, html, settings.failedPattern || null)
       const notes: string[] = []
       let tests = failed.map((name) => ({ name, bugs: [] as unknown[] }))
       if (failed.length && a.jira_base_url && a.jira_secret) {
