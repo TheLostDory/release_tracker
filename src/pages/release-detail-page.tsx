@@ -19,6 +19,7 @@ import {
   useUpdateReport,
   useUpdateTask,
 } from '@/features/releases/queries'
+import { PlanDatesButton } from '@/features/automation/plan-dates-button'
 import { AttentionBanner } from '@/features/releases/attention-banner'
 import { ReleaseActions } from '@/features/releases/release-actions'
 import { summarizeRelease } from '@/features/releases/release-summary'
@@ -167,7 +168,7 @@ export default function ReleaseDetailPage() {
         </div>
       </Section>
 
-      <Section title="Workflow steps">
+      <Section title="Workflow steps" action={!readOnly && <PlanDatesButton releaseId={release.id} target={release.planned_deployment_date} />}>
         <TaskList
           tasks={release.tasks}
           current={next?.type ?? null}
@@ -213,13 +214,16 @@ export default function ReleaseDetailPage() {
   )
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   const id = `section-${title.toLowerCase().replace(/\W+/g, '-')}`
   return (
     <section aria-labelledby={id}>
-      <h2 id={id} className="mb-2 text-sm font-medium text-muted-foreground">
-        {title}
-      </h2>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 id={id} className="text-sm font-medium text-muted-foreground">
+          {title}
+        </h2>
+        {action}
+      </div>
       {children}
     </section>
   )

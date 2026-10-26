@@ -18,6 +18,8 @@ interface Props {
   confirmLabel?: string
   pending?: boolean
   onConfirm: () => void
+  /** "default" for confirmations that aren't deletions (neutral button, "Working…"). */
+  tone?: 'danger' | 'default'
 }
 
 export function ConfirmDeleteDialog({
@@ -28,6 +30,7 @@ export function ConfirmDeleteDialog({
   confirmLabel = 'Delete',
   pending,
   onConfirm,
+  tone = 'danger',
 }: Props) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -39,7 +42,7 @@ export function ConfirmDeleteDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            variant="destructive"
+            variant={tone === 'danger' ? 'destructive' : 'default'}
             disabled={pending}
             onClick={(e) => {
               // Keep the dialog open until the mutation settles.
@@ -47,7 +50,7 @@ export function ConfirmDeleteDialog({
               onConfirm()
             }}
           >
-            {pending ? 'Deleting…' : confirmLabel}
+            {pending ? (tone === 'danger' ? 'Deleting…' : 'Working…') : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

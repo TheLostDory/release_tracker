@@ -8,6 +8,7 @@ import { errorHandler, notFound } from './http/errors.js'
 import { csrfGuard, securityHeaders } from './http/security.js'
 import type { ReleaseEvents } from './realtime.js'
 import { authRoutes } from './routes/auth.js'
+import { automationRoutes } from './routes/automation.js'
 import { chatRoutes } from './routes/chat.js'
 import { codeCompareRoutes } from './routes/code-compare.js'
 import { integrationRoutes } from './routes/integrations.js'
@@ -37,6 +38,7 @@ export function createApp({ db, config, events }: { db: Db; config: Config; even
   api.use(integrationRoutes(db, config))
   api.use(chatRoutes(db, config))
   api.use(codeCompareRoutes(db, config))
+  api.use(automationRoutes(db))
   api.use(events.routes(db))
   api.use((_req, _res, next) => next(notFound('No such API endpoint.')))
   app.use('/api', api)
