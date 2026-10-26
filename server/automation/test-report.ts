@@ -149,13 +149,29 @@ export function reportLinksFromBuildPage(html: string, buildUrl: string): string
   return scored.sort((x, y) => y.score - x.score).map((s) => s.url)
 }
 
-/** HTML Publisher wraps the report in a page with a frame: the frame's address, if any. */
+/**
+ * HTML Publisher wraps the report in a page with a frame and one tab per
+ * report file (plus a "Zip" download). The report's address: the frame's
+ * src when set, else the first tab's file (its value attribute), a link
+ * aimed at the frame, or an .html name in the page's inline script.
+ */
 export function framedReport(html: string, pageUrl: string): string | null {
-  const m = /<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/i.exec(html)
-  if (!m) return null
-  try {
-    return new URL(decodeEntities(m[1]!), pageUrl).toString()
-  } catch {
-    return null
+  const resolve = (href: string) => {
+    try {
+      return new URL(decodeEntities(href), pageUrl).toString()
+    } catch {
+      return null
+    }
   }
+  const usable = (href: string | undefined) => !!href && !/^(about:|javascript:|#)/i.test(href) && !href.includes('*zip*')
+  const frame = /<i?frame\b[^>]*\bsrc\s*=\s*["']([^"']*)["']/i.exec(html)?.[1]
+  if (usable(frame)) return resolve(frame!)
+  if (!/<i?frame\b/i.test(html)) return null
+  // The frame is filled by a tab: HTML Publisher keeps each tab's file in its value attribute.
+  const tab = /<(?:li|option|span|div|button)\b[^>]*\bvalue\s*=\s*["']([^"']+\.html?(?:[?#][^"']*)?)["']/i.exec(html)?.[1]
+  if (usable(tab)) return resolve(tab!)
+  const aimed = /<a\b(?=[^>]*\btarget\s*=)[^>]*\bhref\s*=\s*["']([^"']+\.html?(?:[?#][^"']*)?)["']/i.exec(html)?.[1]
+  if (usable(aimed)) return resolve(aimed!)
+  for (const m of html.matchAll(/["']([^"'\s<>]+\.html?)["']/gi)) if (usable(m[1])) return resolve(m[1]!)
+  return null
 }

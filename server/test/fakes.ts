@@ -342,7 +342,11 @@ export async function fakeJenkins() {
     '/job/qa/job/gauge-hit/5/HTML_20Report/specs/search.html': `<h1>Search</h1>
       <div class="scenario-container failed"><h3>HIT-Search filters</h3></div>`,
     // Result data next to the report (recent Gauge versions).
-    '/job/qa/job/gauge-load/3/HTML_20Report/': wrapper,
+    // Newer HTML Publisher: empty frame filled by tabs, plus a Zip download.
+    '/job/qa/job/gauge-load/3/HTML_20Report/': `<html><body><div id="navigation"><div><a href="*zip*/HTML_20Report.zip">Zip</a></div>
+      <ul id="tabnav"><li id="tab1" class="unselected" onclick="updateBody('tab1');" value="index.html">index</li></ul></div>
+      <iframe id="myframe" height="100%" width="100%" frameborder="0"></iframe>
+      <script>function updateBody(id){ document.getElementById('myframe').src = document.getElementById(id).getAttribute('value') }</script></body></html>`,
     '/job/qa/job/gauge-load/3/HTML_20Report/index.html': gaugeIndex,
     '/job/qa/job/gauge-load/3/HTML_20Report/js/result.js': `var gaugeExecutionResult = ${JSON.stringify({
       suiteResult: { specResults: [{ specHeading: 'Load', scenarios: [{ scenarioHeading: 'test_export_ABC_42', executionStatus: 'fail' }, { scenarioHeading: 'Peak', executionStatus: 'pass' }] }] },

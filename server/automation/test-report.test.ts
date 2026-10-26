@@ -67,5 +67,13 @@ describe('finding the report on the build page', () => {
       'https://ci/job/x/1/HIT_20Report/index.html',
     )
     expect(framedReport('<html><body>No frame</body></html>', 'https://ci/x/')).toBeNull()
+    // Newer HTML Publisher: an empty frame filled by tabs ("Zip" download + one tab per file).
+    const wrapper = `<div id="navigation"><div><a href="*zip*/HTML_20Report.zip">Zip</a></div>
+      <ul id="tabnav"><li id="tab1" class="unselected" onclick="updateBody('tab1');" value="index.html">index</li></ul></div>
+      <iframe id="myframe" height="100%" width="100%" frameborder="0"></iframe>
+      <script>function updateBody(id){ document.getElementById('myframe').src = document.getElementById(id).getAttribute('value') }</script>`
+    expect(framedReport(wrapper, 'https://ci/job/x/5/HTML_20Report/')).toBe('https://ci/job/x/5/HTML_20Report/index.html')
+    expect(framedReport('<iframe name="r"></iframe><a target="r" href="specs/a.html">a</a>', 'https://ci/r/')).toBe('https://ci/r/specs/a.html')
+    expect(framedReport('<iframe></iframe><script>var tabs = ["*zip*/r.zip", "report.html"]</script>', 'https://ci/r/')).toBe('https://ci/r/report.html')
   })
 })
