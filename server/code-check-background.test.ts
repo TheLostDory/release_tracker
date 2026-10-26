@@ -45,7 +45,7 @@ describe.skipIf(remote)('automation: Code vs Jira in the background', () => {
   })
 
   it('re-checks open releases, stores the result and tells Teams about new differences', async () => {
-    expect(await withPool((p) => runBackgroundCodeChecks(p, config(), projectId))).toBe(1)
+    expect(await withPool((p) => runBackgroundCodeChecks(p, config(), projectId))).toEqual({ checked: 1, errors: [] })
     const c = client(server.base)
     await c.login('charbel@example.com')
     const listed = (await c.get(`/api/releases?projectId=${projectId}`)).body[0]
@@ -57,7 +57,7 @@ describe.skipIf(remote)('automation: Code vs Jira in the background', () => {
     expect(card).toContain('Code vs Jira: 151 differences** (was 0): 148 in Jira not merged (50 marked Done), 2 merged not in the version, 1 merged without an issue')
 
     // Checked within the hour: skipped. Same result again: no new alert.
-    expect(await withPool((p) => runBackgroundCodeChecks(p, config(), projectId))).toBe(0)
+    expect(await withPool((p) => runBackgroundCodeChecks(p, config(), projectId))).toEqual({ checked: 0, errors: [] })
     expect(await withPool((p) => deliverNotifications(p, config(), 0))).toEqual({ sent: 0, failed: 0 })
   })
 })

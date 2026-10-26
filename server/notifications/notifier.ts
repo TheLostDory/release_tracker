@@ -102,7 +102,54 @@ export async function queueDailySummaries(db: Db, config: Config, now = new Date
   return queued
 }
 
-/** Delivers every 20 seconds; checks daily summaries every minute. */
+/** "2026-10-23" + n days (calendar arithmetic, no time zones). */
+function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Each morning (the daily summary time and days), one card per release with
+ * the steps due on the next working day (on Friday: through Monday).
+ */
+export async function queueDueSoonReminders(db: Db, now = new Date()): Promise<number> {
+  const { rows } = await db.query<{ project_id: string; settings: Partial<TeamsSettings> }>('select * from due_soon_projects()')
+  let queued = 0
+  for (const p of rows) {
+    const s = { ...DEFAULT_TEAMS_SETTINGS, ...p.settings }
+    const local = localNow(s.timezone, now)
+    if (local.weekday === 'Sat' || local.weekday === 'Sun') continue
+    if (local.time < s.dailyTime) continue
+    const from = addDays(local.day, 1)
+    const to = addDays(local.day, local.weekday === 'Fri' ? 3 : 1)
+    const steps = (
+      await db.query<{ release_id: string; release_name: string; version: string; step: string; owner: string | null; due: string }>(
+        'select * from due_soon_steps($1, $2, $3)',
+        [p.project_id, from, to],
+      )
+    ).rows
+    const byRelease = new Map<string, typeof steps>()
+    for (const st of steps) byRelease.set(st.release_id, [...(byRelease.get(st.release_id) ?? []), st])
+    for (const [releaseId, list] of byRelease) {
+      const first = list[0]!
+      const payload = {
+        release: { id: releaseId, name: first.release_name, version: first.version },
+        steps: list.map((st) => ({ name: st.step, owner: st.owner, due: st.due === from ? 'tomorrow' : st.due })),
+      }
+      const { rows: done } = await db.query<{ queued: boolean }>('select enqueue_reminder($1, $2, $3, $4) as queued', [
+        p.project_id,
+        releaseId,
+        JSON.stringify(payload),
+        `due:${releaseId}:${local.day}`,
+      ])
+      if (done[0]?.queued) queued++
+    }
+  }
+  return queued
+}
+
+/** Delivers every 20 seconds; checks daily summaries and reminders every minute. */
 export function startNotifier(db: Db, config: Config): () => void {
   let running = false
   let ticks = 0
@@ -110,7 +157,10 @@ export function startNotifier(db: Db, config: Config): () => void {
     if (running) return
     running = true
     try {
-      if (ticks++ % 3 === 0) await queueDailySummaries(db, config)
+      if (ticks++ % 3 === 0) {
+        await queueDailySummaries(db, config)
+        await queueDueSoonReminders(db)
+      }
       await deliverNotifications(db, config)
     } catch (err) {
       console.error('[teams] notifier failed:', (err as Error).message)

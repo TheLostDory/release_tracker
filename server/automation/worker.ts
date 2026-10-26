@@ -255,8 +255,9 @@ interface CodeTarget {
 }
 
 /** Re-runs Code vs Jira for open releases (hourly per release); more differences → Teams. */
-export async function runBackgroundCodeChecks(db: Db, config: Config, projectId?: string): Promise<number> {
-  if (!config.ENCRYPTION_KEY) return 0
+export async function runBackgroundCodeChecks(db: Db, config: Config, projectId?: string): Promise<{ checked: number; errors: string[] }> {
+  const errors: string[] = []
+  if (!config.ENCRYPTION_KEY) return { checked: 0, errors }
   const key = config.ENCRYPTION_KEY
   const { rows } = await db.query<CodeTarget>('select * from code_check_targets()')
   let checked = 0
@@ -283,10 +284,12 @@ export async function runBackgroundCodeChecks(db: Db, config: Config, projectId?
       await db.query('select record_code_check($1, $2)', [t.release_id, JSON.stringify(summary)])
       checked++
     } catch (err) {
-      console.warn(`[automation] Code vs Jira for ${t.name}: ${(err as Error).message}`)
+      const message = `Code vs Jira for ${t.name}: ${(err as Error).message}`
+      console.warn(`[automation] ${message}`)
+      errors.push(message)
     }
   }
-  return checked
+  return { checked, errors }
 }
 
 /** Runs the automation tasks: Jenkins starts every 20 s; step checks every 5 minutes; Jira sync every 10; Code vs Jira every 15 (each release hourly). */

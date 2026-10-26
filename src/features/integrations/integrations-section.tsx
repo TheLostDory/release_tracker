@@ -23,6 +23,8 @@ const TEAMS_EVENTS: { key: keyof TeamsSettings['events']; label: string; hint: s
   { key: 'blocked', label: 'Blocked steps', hint: 'A step becomes blocked, with the reason.' },
   { key: 'jenkins', label: 'Jenkins jobs finished', hint: 'A Load Test, Longevity, HIT or other job finished, with its result.' },
   { key: 'code', label: 'Code vs Jira differences', hint: 'When a release’s comparison finds more differences than before.' },
+  { key: 'dueSoon', label: 'Due tomorrow', hint: 'Each morning (at the summary time): steps due on the next working day, with their owners.' },
+  { key: 'approval', label: 'Approval needed', hint: 'When approval is requested: the deadline and what’s still open.' },
   { key: 'daily', label: 'Daily summary', hint: 'The dashboard’s Action required list, once a day.' },
 ]
 
