@@ -8,7 +8,11 @@ export type JobPurpose = 'LOAD_TEST' | 'LONGEVITY' | 'HIT' | 'AUTOMATED'
 export interface AutomationSettings {
   planDates: { enabled: boolean; offsets: Partial<Record<WorkflowTaskType, number>> }
   emails: { recipients: Record<EmailStep, { to: string; cc: string }> }
-  jenkins: { autoStart: boolean; jobs: { purpose: JobPurpose; jobPath: string; parameters: Record<string, string> }[] }
+  jenkins: {
+    autoStart: boolean
+    /** startedByParent: another job (a parent) starts it; its runs still fill the slot. */
+    jobs: { purpose: JobPurpose; jobPath: string; parameters: Record<string, string>; startedByParent?: boolean }[]
+  }
   autoComplete: { rcCreationFromGithub: boolean; deploymentFromJira: boolean }
   jiraSync: { importVersions: boolean; syncDates: boolean }
   codeCheck: { background: boolean }

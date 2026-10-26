@@ -1,6 +1,7 @@
 import type { Config } from '../config.js'
 import { decrypt } from '../crypto.js'
 import type { Db } from '../db/pool.js'
+import { attachChildren } from './children.js'
 import { cached } from '../integrations/cache.js'
 import { githubBranchExists, type GitHubConnection } from '../integrations/github.js'
 import { jenkinsBuildTree, jenkinsQueueItem, jenkinsTrigger, type JenkinsConnection } from '../integrations/jenkins.js'
@@ -60,7 +61,10 @@ export async function processJenkinsStarts(db: Db, config: Config, releaseId?: s
         const runId = (await db.query<{ id: string }>('select jenkins_start_resolved($1, $2) as id', [s.id, q.number])).rows[0]?.id
         if (runId) {
           const status = await jenkinsBuildTree(conn, { jobPath: s.job_path, build: q.number }).catch(() => null)
-          if (status) await db.query('select jenkins_followed_record($1, $2, null)', [runId, JSON.stringify(status)])
+          if (status) {
+            await db.query('select jenkins_followed_record($1, $2, null)', [runId, JSON.stringify(status)])
+            await attachChildren(db, runId, status)
+          }
         }
         result.resolved++
       } else if (q.state === 'cancelled') {

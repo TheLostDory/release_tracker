@@ -61,11 +61,24 @@ export function AutomatedJobsPanel({
       <JenkinsStarts releaseId={releaseId} projectId={projectId} canEdit={canEdit} canManage={canManage} />
       <ul className="space-y-2">
         {slots.map((slot) => (
-          <Slot key={slot.purpose} releaseId={releaseId} label={slot.label} purpose={slot.purpose} run={runs.find((r) => r.purpose === slot.purpose)} canEdit={canEdit} />
+          <Slot
+            key={slot.purpose}
+            releaseId={releaseId}
+            label={slot.label}
+            purpose={slot.purpose}
+            run={runs.find((r) => r.purpose === slot.purpose)}
+            parent={runs.find((p) => p.id === runs.find((r) => r.purpose === slot.purpose)?.parent_run_id)}
+            canEdit={canEdit}
+          />
         ))}
         {others.map((run) => (
           <li key={run.id}>
-            <FollowedCard followed={run} releaseId={releaseId} canEdit={canEdit} heading="Job" />
+            <FollowedCard
+              followed={run}
+              releaseId={releaseId}
+              canEdit={canEdit}
+              heading={runs.some((r) => r.parent_run_id === run.id) ? 'Parent job' : 'Job'}
+            />
           </li>
         ))}
       </ul>
@@ -87,19 +100,28 @@ function Slot({
   label,
   purpose,
   run,
+  parent,
   canEdit,
 }: {
   releaseId: string
   label: string
   purpose: RunPurpose
   run: FollowedBuild | undefined
+  /** The parent run that started it, if any. */
+  parent?: FollowedBuild
   canEdit: boolean
 }) {
   const [replacing, setReplacing] = useState(false)
   if (run && !replacing) {
     return (
       <li className="space-y-1">
-        <FollowedCard followed={run} releaseId={releaseId} canEdit={canEdit} heading={label} />
+        <FollowedCard
+          followed={run}
+          releaseId={releaseId}
+          canEdit={canEdit}
+          heading={label}
+          note={parent ? `Started by ${parent.status?.name ?? `${parent.job_path} #${parent.build_number}`}` : undefined}
+        />
         {canEdit && (
           <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setReplacing(true)}>
             Replace with a new run…

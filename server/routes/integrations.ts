@@ -17,6 +17,7 @@ import {
   resolveBuildNumber,
 } from '../integrations/jenkins.js'
 import { isJiraProjectKey, jiraProjectName, jiraVersionIssues, jiraVersions, jiraWhoAmI, type JiraVersion } from '../integrations/jira.js'
+import { attachChildren } from '../automation/children.js'
 import { cached, uncache } from '../integrations/cache.js'
 import { githubRepo, githubWhoAmI, isRepoName, normalizeGitHubApiUrl } from '../integrations/github.js'
 import { checkWebhookUrl, postTeamsCard } from '../integrations/teams.js'
@@ -82,7 +83,7 @@ const followBody = z.strictObject({
   purpose: z.enum(['AUTOMATED', 'LOAD_TEST', 'LONGEVITY', 'HIT']).nullable().optional(),
 })
 
-const FOLLOWED_COLUMNS = 'id, release_id, job_path, build_number, label, purpose, status, last_synced_at, last_error, created_at'
+const FOLLOWED_COLUMNS = 'id, release_id, job_path, build_number, label, purpose, parent_run_id, status, last_synced_at, last_error, created_at'
 
 const jobBody = z.strictObject({
   jobPath: z.string().min(1).max(500),
@@ -483,8 +484,9 @@ export function integrationRoutes(db: Db, config: Config) {
         [releaseId, ref.jobPath, number, body.label || null, purpose, userId(req)],
       )
       const id = r.rows[0]!.id
-      // Stores the status and applies it (step, report link, activity).
+      // Stores the status and applies it (step, report link, activity); a parent fills the slots of the jobs it started.
       await tx.query('select jenkins_followed_record($1, $2, null)', [id, JSON.stringify(status)])
+      await attachChildren(tx, id, status)
       if (purpose) await tx.query('select apply_automated_jobs($1)', [releaseId])
       return (await tx.query(`select ${FOLLOWED_COLUMNS} from release_jenkins_builds where id = $1`, [id])).rows[0]
     })
@@ -509,6 +511,7 @@ export function integrationRoutes(db: Db, config: Config) {
           jenkinsBuildTree(jenkinsConnection(jenkins, secret), { jobPath: followed.job_path, build: followed.build_number }),
         )
         await tx.query('select jenkins_followed_record($1, $2, null)', [fid, JSON.stringify(status)])
+        await attachChildren(tx, fid, status)
       } catch (err) {
         if (!(err instanceof OutboundError)) throw err
         // Keep the last known status; show why it couldn't be refreshed.

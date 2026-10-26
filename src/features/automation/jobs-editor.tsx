@@ -14,7 +14,7 @@ export function JobsEditor({ jobs, onChange }: { jobs: Job[]; onChange: (jobs: J
   return (
     <div className="space-y-2">
       {jobs.map((job, i) => (
-        <div key={i} className="grid items-center gap-2 sm:grid-cols-[9rem_1fr_1fr_auto]">
+        <div key={i} className="grid items-center gap-2 sm:grid-cols-[11rem_1fr_1fr_auto]">
           <Select value={job.purpose} onValueChange={(v) => update(i, { purpose: v as JobPurpose })}>
             <SelectTrigger size="sm" className="w-full" aria-label="Purpose">
               <SelectValue />
@@ -22,7 +22,7 @@ export function JobsEditor({ jobs, onChange }: { jobs: Job[]; onChange: (jobs: J
             <SelectContent>
               {(Object.keys(PURPOSE_LABEL) as JobPurpose[]).map((p) => (
                 <SelectItem key={p} value={p}>
-                  {p === 'AUTOMATED' ? 'Other job' : PURPOSE_LABEL[p]}
+                  {p === 'AUTOMATED' ? 'Other job / parent' : PURPOSE_LABEL[p]}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -31,13 +31,25 @@ export function JobsEditor({ jobs, onChange }: { jobs: Job[]; onChange: (jobs: J
           <Input
             aria-label="Parameters"
             className="h-8 font-mono text-xs"
-            placeholder="RC_VERSION={{version}}, ENV=staging"
+            placeholder={job.startedByParent ? 'Set by the parent job' : 'RC_VERSION={{version}}, ENV=staging'}
+            disabled={!!job.startedByParent}
             defaultValue={toText(job.parameters)}
             onBlur={(e) => update(i, { parameters: parseParamList(e.target.value) })}
           />
           <Button size="icon-sm" variant="ghost" aria-label="Remove job" onClick={() => onChange(jobs.filter((_, k) => k !== i))}>
             <Trash2 />
           </Button>
+          {job.purpose !== 'AUTOMATED' && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground sm:col-span-4 sm:pl-[11.5rem]">
+              <input
+                type="checkbox"
+                className="size-3.5 accent-foreground"
+                checked={!!job.startedByParent}
+                onChange={(e) => update(i, { startedByParent: e.target.checked })}
+              />
+              Started by the parent job: don’t start it here, take its run from the parent’s run
+            </label>
+          )}
         </div>
       ))}
       <Button

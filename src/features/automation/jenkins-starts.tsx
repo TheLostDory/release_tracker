@@ -13,7 +13,8 @@ export function JenkinsStarts({ releaseId, projectId, canEdit, canManage }: { re
   const { data: starts = [] } = useJenkinsStarts(releaseId, true)
   const start = useStartJenkinsJobs(releaseId)
   const dismiss = useDismissJenkinsStart(releaseId)
-  const jobs = automation?.jenkins.jobs ?? []
+  // Jobs a parent starts aren't started from here.
+  const jobs = (automation?.jenkins.jobs ?? []).filter((j) => !j.startedByParent)
 
   return (
     <div className="space-y-2">
@@ -34,7 +35,7 @@ export function JenkinsStarts({ releaseId, projectId, canEdit, canManage }: { re
               }
             >
               {start.isPending ? <Loader2 className="animate-spin" /> : <Play />}
-              Start jobs ({jobs.map((j) => PURPOSE_LABEL[j.purpose]).join(', ')})
+              Start jobs ({jobs.map((j) => (j.purpose === 'AUTOMATED' ? (j.jobPath.split('/').pop() ?? j.jobPath) : PURPOSE_LABEL[j.purpose])).join(', ')})
             </Button>
           ) : (
             <span className="text-xs text-muted-foreground">

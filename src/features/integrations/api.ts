@@ -149,6 +149,8 @@ export interface FollowedBuild {
   label: string | null
   /** Set when added to the Automated jobs step. */
   purpose: RunPurpose | null
+  /** The parent run that started this one (its slot was filled from it). */
+  parent_run_id: string | null
   status: BuildNode | null
   last_synced_at: string | null
   last_error: string | null

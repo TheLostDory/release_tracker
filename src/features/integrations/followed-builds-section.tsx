@@ -128,12 +128,15 @@ export function FollowedCard({
   releaseId,
   canEdit,
   heading,
+  note,
 }: {
   followed: FollowedBuild
   releaseId: string
   canEdit: boolean
   /** Shown before the title, e.g. "Load Test". */
   heading?: string
+  /** A line under the title, e.g. which parent run started it. */
+  note?: string
 }) {
   const { data = followed, isFetching, refetch, dataUpdatedAt } = useFollowedBuildStatus(followed)
   // Progress is as of the last answer from Jenkins (refreshed every 15 s while running).
@@ -179,6 +182,7 @@ export function FollowedCard({
           </Button>
         )}
       </div>
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
       {root && <BuildRow node={root} now={now} showBadge={false} />}
       {root?.reportUrl && safeHttpUrl(root.reportUrl) && (
         <a href={root.reportUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:underline">

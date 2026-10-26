@@ -1,4 +1,5 @@
 import type { Config } from '../config.js'
+import { attachChildren } from '../automation/children.js'
 import { decrypt } from '../crypto.js'
 import type { Db } from '../db/pool.js'
 import { jenkinsBuilds, jenkinsBuildTree } from './jenkins.js'
@@ -73,6 +74,7 @@ export async function syncFollowedBuilds(db: Db, config: Config): Promise<number
         const conn = { baseUrl: run.base_url, username: run.username, secret: decrypt(run.secret_encrypted, config.ENCRYPTION_KEY!), ca: run.ca_cert }
         const status = await jenkinsBuildTree(conn, { jobPath: run.job_path, build: run.build_number })
         await db.query('select jenkins_followed_record($1, $2, null)', [run.id, JSON.stringify(status)])
+        await attachChildren(db, run.id, status)
       } catch (err) {
         const message = err instanceof OutboundError ? err.message : 'Sync failed.'
         await db.query('select jenkins_followed_record($1, null, $2)', [run.id, message]).catch(() => {})

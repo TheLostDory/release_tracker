@@ -205,6 +205,8 @@ export async function fakeAi() {
 }
 
 export const JENKINS = { user: 'ci-bot', token: 'jenkins-api-token' }
+/** What the fake parent job (release/rc-validation) starts. */
+const CHILD_JOBS = ['perf/load-test', 'perf/longevity', 'platform/hit-suite']
 
 export interface FakeBuild {
   number: number
@@ -231,6 +233,8 @@ export async function fakeJenkins() {
     // Test jobs run during the Automated jobs step.
     ['perf/load-test', [{ number: 8, result: 'SUCCESS', building: false, artifacts: [{ relativePath: 'reports/load.html' }] }]],
     ['perf/longevity', [{ number: 20, result: null, building: true }]],
+    // A parent job: each run starts the Load Test, Longevity and HIT jobs.
+    ['release/rc-validation', []],
     ['platform/deploy', []],
     // A running pipeline that started three jobs (one still waiting in the queue).
     [
@@ -270,7 +274,16 @@ export async function fakeJenkins() {
     const item = queue[id - 1]!
     const builds = jobs.get(item.job)!
     item.number = (builds.at(-1)?.number ?? 0) + 1
-    builds.push({ number: item.number, result: null, building: true })
+    const build: FakeBuild = { number: item.number, result: null, building: true }
+    if (item.job === 'release/rc-validation') {
+      build.downstream = CHILD_JOBS.map((child) => {
+        const childBuilds = jobs.get(child)!
+        const n = (childBuilds.at(-1)?.number ?? 0) + 1
+        childBuilds.push({ number: n, result: null, building: true, artifacts: child === 'perf/load-test' ? [{ relativePath: 'reports/load.html' }] : undefined })
+        return [child, n] as [string, number]
+      })
+    }
+    builds.push(build)
   }
   app.get('/queue/item/:id/api/json', (req, res) => {
     const item = queue[Number(req.params.id) - 1]
@@ -344,6 +357,12 @@ export async function fakeJenkins() {
     },
     cancelQueued() {
       queue.forEach((item) => item.number === null && (item.cancelled = true))
+    },
+    /** Finish a specific build of a job. */
+    finishBuild(job: string, number: number, result: string) {
+      const b = jobs.get(job)!.find((x) => x.number === number)!
+      b.building = false
+      b.result = result
     },
     /** Finish the newest build of a job with a result. */
     finish(job: string, result: string) {

@@ -59,6 +59,8 @@ export const automationSchema = z.strictObject({
           purpose: z.enum(['LOAD_TEST', 'LONGEVITY', 'HIT', 'AUTOMATED']),
           jobPath: z.string().trim().min(1).max(300),
           parameters: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,99}$/), z.string().max(500)),
+          /** Started by another job (a parent): not started by "Start jobs"; its runs fill this slot. */
+          startedByParent: z.boolean().optional(),
         }),
       )
       .max(20),

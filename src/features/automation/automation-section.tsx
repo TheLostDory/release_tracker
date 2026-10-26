@@ -67,7 +67,14 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
 
         <Block
           title="Start Jenkins jobs"
-          description="The Automated jobs step gets a “Start jobs” button that starts these jobs and follows the runs they become (no links to paste). Parameters can use {{version}} and {{name}}."
+          description={
+            <>
+              The Automated jobs step gets a “Start jobs” button that starts these jobs and follows the runs they become (no links to
+              paste). Parameters can use {'{{version}}'} and {'{{name}}'}. <strong>One job starts the others?</strong> Add it as
+              “Other job / parent”: the Load Test, Longevity and HIT runs it starts fill their slots by themselves (recognised by name, or
+              list them here as “started by another job”).
+            </>
+          }
         >
           <JobsEditor jobs={s.jenkins.jobs} onChange={(jobs) => set('jenkins', { ...s.jenkins, jobs })} />
           <label className="mt-2 flex items-center gap-2 text-sm">

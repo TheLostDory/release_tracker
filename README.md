@@ -264,7 +264,7 @@ it starts.
 | Automation | What it does | Default |
 |---|---|---|
 | **Plan step dates** | New releases get each step's date counted back from the target (days before, per step; weekends → Friday). Moving the target moves open steps. *Plan dates* on a release re-plans it. | on |
-| **Start Jenkins jobs** | List the Load Test / Longevity / HIT / other jobs once (parameters may use `{{version}}`, `{{name}}`). *Start jobs* in the Automated jobs step starts them and follows the runs they become (no links to paste); optionally starts by itself when RC creation completes. | jobs: none; auto-start: off |
+| **Start Jenkins jobs** | List the Load Test / Longevity / HIT / other jobs once (parameters may use `{{version}}`, `{{name}}`). *Start jobs* in the Automated jobs step starts them and follows the runs they become (no links to paste); optionally starts by itself when RC creation completes. **One job starts the others?** Add it as *Other job / parent*: the Load Test, Longevity and HIT runs it starts fill their slots by themselves (by name, or list them as *started by the parent job*). A newer parent run replaces an older one's runs. | jobs: none; auto-start: off |
 | **Complete steps automatically** | RC creation when the RC branch exists on GitHub (every repository); Deployment when the Jira version is released (its date becomes the deployment date). Every 5 min. | on |
 | **Follow Jira** | Target dates and renamed versions follow the linked Jira versions; optionally new unreleased versions become releases (stale ones skipped). Every 10 min. | dates: on; import: off |
 | **Code vs Jira in the background** | Releases with a comparison set up are re-checked hourly; Teams is told when differences go up. | on |
