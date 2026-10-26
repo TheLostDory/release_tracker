@@ -222,3 +222,53 @@ export async function jiraIssueVersions(c: JiraConnection, key: string): Promise
     throw err
   }
 }
+
+// --- Raw search / issue reads (for matching failed tests with bugs) -------------------------
+
+export interface RawLinkedIssue {
+  key: string
+  fields?: { summary?: string; status?: { name?: string; statusCategory?: { key?: string } }; issuetype?: { name?: string } }
+}
+
+export interface RawSearchIssue {
+  key: string
+  fields: {
+    summary?: string
+    description?: unknown
+    labels?: string[]
+    status?: { name?: string; statusCategory?: { key?: string } }
+    issuetype?: { name?: string }
+    issuelinks?: { inwardIssue?: RawLinkedIssue; outwardIssue?: RawLinkedIssue }[]
+  }
+}
+
+/** Up to `max` issues matching a JQL query, with the given fields (Cloud and Server/DC). */
+export async function jiraSearchRaw(c: JiraConnection, jql: string, fields: string[], max = 100): Promise<RawSearchIssue[]> {
+  if (c.authType === 'JIRA_CLOUD') {
+    const page = await outboundJson<{ issues: RawSearchIssue[] }>(`${c.baseUrl}/rest/api/3/search/jql`, SERVICE, {
+      method: 'POST',
+      headers: { ...headers(c), 'content-type': 'application/json' },
+      ca: c.ca,
+      body: JSON.stringify({ jql, fields, maxResults: max }),
+      errorDetail: true,
+    })
+    return page.issues.slice(0, max)
+  }
+  const params = new URLSearchParams({ jql, fields: fields.join(','), maxResults: String(max) })
+  const page = await outboundJson<{ issues: RawSearchIssue[] }>(`${c.baseUrl}/rest/api/2/search?${params}`, SERVICE, { headers: headers(c), ca: c.ca, errorDetail: true })
+  return page.issues.slice(0, max)
+}
+
+/** One issue with the given fields, or null when it doesn't exist (or isn't visible). */
+export async function jiraIssueRaw(c: JiraConnection, key: string, fields: string[]): Promise<RawSearchIssue | null> {
+  if (!/^[A-Z][A-Z0-9_]{1,19}-\d{1,9}$/.test(key)) return null
+  try {
+    return await outboundJson<RawSearchIssue>(`${c.baseUrl}/rest/api/2/issue/${encodeURIComponent(key)}?fields=${fields.join(',')}`, SERVICE, {
+      headers: headers(c),
+      ca: c.ca,
+    })
+  } catch (err) {
+    if ((err as { status?: number }).status === 404) return null
+    throw err
+  }
+}

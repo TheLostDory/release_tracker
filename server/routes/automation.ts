@@ -2,7 +2,13 @@ import { Router } from 'express'
 import type { Config } from '../config.js'
 import type { Db } from '../db/pool.js'
 import { automationSchema, automationSettings } from '../automation/settings.js'
+import { processTestAnalyses } from '../automation/test-analysis.js'
+import { extractFailedTests } from '../automation/test-report.js'
 import { processJenkinsStarts } from '../automation/worker.js'
+import { jenkinsGetText } from '../integrations/jenkins.js'
+import { asHttpError } from '../integrations/outbound.js'
+import { jenkinsConnection, loadIntegration } from '../integrations/store.js'
+import { z } from 'zod'
 import { forbidden, HttpError, notFound } from '../http/errors.js'
 import { asUser, explainNoRows, idParam } from '../http/helpers.js'
 
@@ -74,6 +80,46 @@ export function automationRoutes(db: Db, config: Config) {
       }
     })
     res.status(204).end()
+  })
+
+  // --- Failed tests of HIT / Load Test runs, and their Jira bugs -------------------------
+  router.get('/releases/:id/test-analyses', async (req, res) => {
+    const id = idParam(req)
+    const rows = await asUser(db, req, async (tx) =>
+      (await tx.query('select run_id, state, result, error, analyzed_at, requested_at from release_test_analyses where release_id = $1', [id])).rows,
+    )
+    res.json(rows)
+  })
+
+  /** "Check again": re-read the report and look the bugs up now. */
+  router.post('/jenkins/followed/:fid/analyze', async (req, res) => {
+    const fid = idParam(req, 'fid')
+    const releaseId = await asUser(db, req, async (tx) => {
+      await tx.query('select request_test_analysis($1)', [fid])
+      return (await tx.query<{ release_id: string }>('select release_id from release_jenkins_builds where id = $1', [fid])).rows[0]?.release_id
+    })
+    if (releaseId) await processTestAnalyses(db, config, releaseId)
+    res.status(202).json({ ok: true })
+  })
+
+  /** Settings → "Test on a report": which failed tests a pattern (or the built-in reading) finds. */
+  router.post('/projects/:id/test-report/preview', async (req, res) => {
+    const id = idParam(req)
+    const body = z.strictObject({ reportUrl: z.string().url().max(2000), pattern: z.string().max(500).default('') }).parse(req.body)
+    if (body.pattern) {
+      try {
+        new RegExp(body.pattern, 'gim')
+      } catch {
+        throw new HttpError(422, 'The pattern is not a valid regular expression.', 'invalid')
+      }
+    }
+    const html = await asUser(db, req, async (tx) => {
+      const role = await tx.query<{ ok: boolean }>("select coalesce(project_role_of($1) >= 'ADMIN'::project_role, false) as ok", [id])
+      if (!role.rows[0]?.ok) throw forbidden()
+      const j = await loadIntegration(tx, config, id, 'JENKINS')
+      return jenkinsGetText(jenkinsConnection(j.row, j.secret), body.reportUrl).catch(asHttpError)
+    })
+    res.json({ failedTests: extractFailedTests(html, body.pattern || null) })
   })
 
   return router

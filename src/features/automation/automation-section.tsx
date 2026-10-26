@@ -8,6 +8,7 @@ import { toUserMessage } from '@/lib/errors'
 import { STEP_BY_TYPE } from '@/lib/workflow'
 import type { AutomationSettings, EmailStep } from './api'
 import { JobsEditor } from './jobs-editor'
+import { TestFailuresSettings } from './test-failures-settings'
 import { useAutomation, useSaveAutomation } from './queries'
 
 /** Project settings → Automation: what the tracker does by itself. */
@@ -143,6 +144,15 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
           onToggle={(background) => set('codeCheck', { background })}
           description="Releases with a comparison set up are re-checked every hour, so the releases list and the dashboard stay current; Teams is told when differences go up (if the Teams notification is on)."
         />
+
+        <Block
+          title="Failed tests → Jira bugs"
+          enabled={s.testFailures.enabled}
+          onToggle={(enabled) => set('testFailures', { ...s.testFailures, enabled })}
+          description="When a run finishes, its HTML report’s failed tests are listed with the Jira bugs linked to each: bugs that mention the test, bugs linked to the test case’s Jira issue, and keys written in the test’s name."
+        >
+          <TestFailuresSettings projectId={project.id} value={s.testFailures} onChange={(testFailures) => set('testFailures', testFailures)} />
+        </Block>
 
         <Block
           title="Email drafts"

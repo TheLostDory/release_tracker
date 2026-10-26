@@ -95,8 +95,22 @@ export async function fakeJira({ https = false } = {}) {
     const issue = issues('10001')[n - 1]!
     res.json({ ...issue, fields: { ...issue.fields, fixVersions: [versionRef('10001')] } })
   })
-  // Full-text search ("text ~") finds the login bug.
-  const textSearch = (jql: string) => (/text ~ "[^"]*login[^"]*"/i.test(jql) ? [login] : [])
+  // Failed HIT tests: a bug that mentions one, a decoy that doesn't really, a test case linked to a field bug.
+  const issue = (key: string, summary: string, type: string, extra: object = {}) => ({
+    key,
+    fields: { summary, issuetype: { name: type }, status: { name: 'Open', statusCategory: { key: 'new' } }, labels: [], description: null, ...extra },
+  })
+  const checkoutBug = issue('ABC-300', 'Checkout times out', 'Bug', { description: 'Fails in HIT-Checkout timeout since build 41.' })
+  const checkoutDecoy = issue('ABC-301', 'Checkout page is slow', 'Bug')
+  const searchCase = issue('ABC-200', 'HIT-Search filters', 'Test', {
+    issuelinks: [{ outwardIssue: { key: 'ABC-201', fields: { summary: 'Filters reset on mobile', issuetype: { name: 'Field Bug' }, status: { name: 'In Progress', statusCategory: { key: 'indeterminate' } } } } }],
+  })
+  // Full-text search ("text ~") finds the login bug, and issues for failed HIT tests.
+  const textSearch = (jql: string) => [
+    ...(/text ~ "[^"]*login[^"]*"/i.test(jql) ? [login] : []),
+    ...(/hit checkout timeout/.test(jql) ? [checkoutBug, checkoutDecoy] : []),
+    ...(/hit search filters/.test(jql) ? [searchCase] : []),
+  ]
   app.use((req, _res, next) => {
     const jql = String(req.body?.jql ?? req.query.jql ?? '')
     if (jql.includes('text ~')) searches.push(jql)
@@ -291,6 +305,23 @@ export async function fakeJenkins() {
     if (item.cancelled) return void res.json({ cancelled: true, executable: null })
     if (item.number === null) return void res.json({ why: 'Waiting for next available executor', executable: null })
     res.json({ executable: { number: item.number } })
+  })
+  // Report artifacts: the HIT report lists passed and failed test cases.
+  app.get(/^((?:\/job\/[^/]+)+)\/(\d+)\/artifact\/(.+)$/, (req, res) => {
+    const [, jobPart, , file] = /^((?:\/job\/[^/]+)+)\/(\d+)\/artifact\/(.+)$/.exec(req.path)!
+    const path = jobPart!.split('/job/').filter(Boolean).map(decodeURIComponent).join('/')
+    if (path === 'platform/hit-suite' && file === 'reports/hit.html') {
+      return void res.type('text/html').send(`<html><body><h1>HIT report</h1><table>
+        <tr><th>Test case</th><th>Result</th><th>Time</th></tr>
+        <tr><td>HIT-Login</td><td>PASS</td><td>1.1 s</td></tr>
+        <tr><td>HIT-Checkout timeout</td><td>FAIL</td><td>30 s</td></tr>
+        <tr><td>test_export_ABC_42</td><td>FAIL</td><td>2 s</td></tr>
+        <tr><td>HIT-Search filters</td><td>FAIL</td><td>4 s</td></tr>
+        <tr><td>HIT-No bug yet</td><td>FAIL</td><td>1 s</td></tr>
+      </table></body></html>`)
+    }
+    if (file?.endsWith('.html')) return void res.type('text/html').send('<html><body><p>All tests passed</p></body></html>')
+    res.status(404).end()
   })
   // One build: /job/a/job/b/42/api/json (or lastBuild) and its console log.
   app.get(/^((?:\/job\/[^/]+)+)\/(\d+|lastBuild)\/(api\/json|logText\/progressiveHtml)$/, (req, res) => {

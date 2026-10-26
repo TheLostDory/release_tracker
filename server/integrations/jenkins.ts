@@ -411,3 +411,9 @@ function dedupe(refs: ChildRef[]): ChildRef[] {
     return true
   })
 }
+
+/** A page from the connected Jenkins (e.g. a build's HTML report), as text. */
+export async function jenkinsGetText(c: JenkinsConnection, url: string): Promise<string> {
+  if (new URL(url).host !== new URL(c.baseUrl).host) throw new HttpError(422, 'That report is not on the connected Jenkins.', 'invalid')
+  return (await outboundText(url, SERVICE, { headers: { ...headers(c), accept: 'text/html,*/*' }, ca: c.ca, errorDetail: true })).text
+}

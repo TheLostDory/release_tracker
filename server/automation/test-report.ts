@@ -1,0 +1,115 @@
+/**
+ * Failed test cases from an HTML test report (HIT, Load Test…). Reports
+ * differ, so this tries the usual layouts; a project can give its own
+ * pattern instead. Pure (tested).
+ */
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', '#39': "'" }
+
+export function decodeEntities(s: string): string {
+  return s
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&([a-z]+|#39);/gi, (m, n) => ENTITIES[n.toLowerCase()] ?? m)
+}
+
+/** Visible text of an HTML fragment, whitespace collapsed. */
+export function textOf(html: string): string {
+  return decodeEntities(html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** The report as plain text, one line per block element (for line-based patterns). */
+export function linesOf(html: string): string {
+  return decodeEntities(
+    html
+      .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<\/(tr|p|div|li|h[1-6]|pre)>|<br\s*\/?>/gi, '\n')
+      .replace(/<\/t[dh]>/gi, '\t')
+      .replace(/<[^>]+>/g, ''),
+  )
+    .split('\n')
+    .map((l) => l.replace(/[ \t]+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+const FAIL_WORD = /^(fail|failed|failure|failing|error|errored|broken|ko|nok|✗|✘|❌)$/i
+const NOT_A_NAME = /^(fail|failed|failure|failing|error|errored|broken|ko|nok|pass|passed|ok|success|skipped|✗|✘|❌|✓|✔|-|n\/a)$/i
+const NUMERIC = /^[\d\s.,:%]+(ms|s|sec|secs|min|m|h)?$/i
+
+const MAX_TESTS = 100
+
+/**
+ * Failed test names. With `pattern` (a regular expression, first group =
+ * the name) only that is used; otherwise: table rows marked failed, then
+ * elements with a "fail"/"error" class, then lines like "FAILED: name".
+ */
+export function extractFailedTests(html: string, pattern?: string | null): string[] {
+  const found: string[] = []
+  const add = (raw: string | undefined) => {
+    const name = (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
+    if (name.length >= 2 && !NOT_A_NAME.test(name) && !found.includes(name)) found.push(name)
+  }
+
+  if (pattern?.trim()) {
+    const re = new RegExp(pattern, 'gim')
+    for (const m of linesOf(html).matchAll(re)) add(m[1] ?? m[0])
+    return found.slice(0, MAX_TESTS)
+  }
+
+  // 1. Table rows with a failed status (a cell saying FAIL…, or a "fail" class on the row/cell).
+  for (const row of html.matchAll(/<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi)) {
+    const rowAttrs = row[1] ?? ''
+    const cells = [...row[2]!.matchAll(/<t([dh])\b([^>]*)>([\s\S]*?)<\/t[dh]>/gi)].map((c) => ({ th: c[1]!.toLowerCase() === 'h', attrs: c[2] ?? '', text: textOf(c[3]!) }))
+    if (cells.length === 0 || cells.every((c) => c.th)) continue
+    const failClass = /class\s*=\s*["'][^"']*\b(fail|failed|failure|error)\b/i
+    const failed = failClass.test(rowAttrs) || cells.some((c) => FAIL_WORD.test(c.text) || (failClass.test(c.attrs) && !c.text))
+    if (!failed) continue
+    add(cells.find((c) => !NOT_A_NAME.test(c.text) && !NUMERIC.test(c.text) && c.text.length >= 2)?.text)
+  }
+  if (found.length) return found.slice(0, MAX_TESTS)
+
+  // 2. Elements whose class says failed (lists, cards…): their first line of text.
+  for (const el of html.matchAll(/<(li|div|span|p|section|article)\b[^>]*class\s*=\s*["'][^"']*\b(fail|failed|failure|error)\b[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi)) {
+    add(linesOf(el[3]!).split('\n')[0])
+  }
+  if (found.length) return found.slice(0, MAX_TESTS)
+
+  // 3. Lines like "FAILED: name", "name ... FAILED", "✗ name".
+  for (const line of linesOf(html).split('\n')) {
+    const m =
+      /^(?:FAIL(?:ED|URE)?|ERROR)\s*[:\-–]\s*(.+)$/i.exec(line) ??
+      /^(.+?)\s*(?:\.{2,}|:|-|–|\t)\s*(?:FAIL(?:ED|URE)?|ERROR)\b.*$/i.exec(line) ??
+      /^[✗✘❌]\s*(.+)$/.exec(line)
+    if (m) add(m[1])
+  }
+  return found.slice(0, MAX_TESTS)
+}
+
+/**
+ * Jira keys written in a test name: ABC-123, and the underscore form test
+ * names use (test_login_ABC_123). The project's own key in any case; other
+ * keys only in upper case.
+ */
+export function keysInTestName(name: string, projectKey: string | null): string[] {
+  const keys = new Set<string>()
+  for (const m of name.matchAll(/(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9]{1,19})[-_](\d{1,9})(?![0-9])/g)) {
+    const prefix = m[1]!
+    const own = projectKey !== null && prefix.toUpperCase() === projectKey
+    if (!own && (prefix !== prefix.toUpperCase() || /^(TEST|TC|CASE|STEP|RUN|ID|V|HTTP|UTF|SHA)$/.test(prefix))) continue
+    keys.add(`${prefix.toUpperCase()}-${Number(m[2])}`)
+  }
+  return [...keys]
+}
+
+/** Lowercase words only: "com.acme.Login_Test#ssoTimeout()" → "com acme login test ssotimeout". */
+export const normalizeName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+/** What to search Jira for: the method/last part of a qualified name when it's specific enough. */
+export function searchPhrase(name: string): string {
+  const parts = name.split(/[.#/:\\]|::/).map((p) => p.trim()).filter(Boolean)
+  const last = parts.at(-1) ?? name
+  return normalizeName(parts.length > 1 && normalizeName(last).length >= 6 ? last : name)
+}

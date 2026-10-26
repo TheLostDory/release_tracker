@@ -16,6 +16,7 @@ export interface AutomationSettings {
   autoComplete: { rcCreationFromGithub: boolean; deploymentFromJira: boolean }
   jiraSync: { importVersions: boolean; syncDates: boolean }
   codeCheck: { background: boolean }
+  testFailures: { enabled: boolean; purposes: ('LOAD_TEST' | 'LONGEVITY' | 'HIT')[]; bugTypes: string[]; failedPattern: string; allProjects: boolean }
 }
 
 export const getAutomation = (projectId: string) => api.get<AutomationSettings>(`/projects/${projectId}/automation`)
@@ -50,3 +51,28 @@ export const listJenkinsStarts = (releaseId: string) => api.get<JenkinsStart[]>(
 export const startJenkinsJobs = (releaseId: string) =>
   api.post<{ queued: number; started: number; resolved: number; failed: number }>(`/releases/${releaseId}/jenkins/start`)
 export const dismissJenkinsStart = (id: string) => api.del(`/jenkins/starts/${id}`)
+
+// --- Failed tests → Jira bugs --------------------------------------------------------------
+
+export interface FoundBug {
+  key: string
+  summary: string
+  type: string
+  status: string
+  statusCategory: string
+  url: string
+  via: string
+}
+
+export interface TestAnalysis {
+  run_id: string
+  state: 'pending' | 'done' | 'failed'
+  result: { reportUrl: string; runResult: string | null; failedTests: { name: string; bugs: FoundBug[] }[]; notes: string[] } | null
+  error: string | null
+  analyzed_at: string | null
+}
+
+export const listTestAnalyses = (releaseId: string) => api.get<TestAnalysis[]>(`/releases/${releaseId}/test-analyses`)
+export const analyzeRun = (runId: string) => api.post(`/jenkins/followed/${runId}/analyze`)
+export const previewTestReport = (projectId: string, reportUrl: string, pattern: string) =>
+  api.post<{ failedTests: string[] }>(`/projects/${projectId}/test-report/preview`, { reportUrl, pattern })

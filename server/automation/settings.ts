@@ -81,6 +81,27 @@ export const automationSchema = z.strictObject({
     /** Re-run Code vs Jira hourly for open releases (Teams alert on new differences). */
     background: z.boolean(),
   }),
+  testFailures: z.strictObject({
+    /** When a run of these purposes finishes: failed tests from its report → Jira bugs. */
+    enabled: z.boolean(),
+    purposes: z.array(z.enum(['LOAD_TEST', 'LONGEVITY', 'HIT'])).max(3),
+    /** Jira issue types that count as bugs. */
+    bugTypes: z.array(z.string().trim().min(1).max(60)).min(1).max(10),
+    /** Optional regular expression for failed tests in the report (first group = name). */
+    failedPattern: z
+      .string()
+      .max(500)
+      .refine((p) => {
+        try {
+          new RegExp(p, 'gim')
+          return true
+        } catch {
+          return false
+        }
+      }, 'not a valid regular expression'),
+    /** Search every Jira project (field bugs elsewhere), not only the connected one. */
+    allProjects: z.boolean(),
+  }),
 })
 
 export type AutomationSettings = z.infer<typeof automationSchema>
@@ -94,6 +115,7 @@ export const DEFAULT_AUTOMATION: AutomationSettings = {
   autoComplete: { rcCreationFromGithub: true, deploymentFromJira: true },
   jiraSync: { importVersions: false, syncDates: true },
   codeCheck: { background: true },
+  testFailures: { enabled: true, purposes: ['HIT', 'LOAD_TEST'], bugTypes: ['Bug', 'Field Bug'], failedPattern: '', allProjects: false },
 }
 
 /** Stored (possibly partial or older) settings → complete settings. */
@@ -107,5 +129,6 @@ export function automationSettings(stored: unknown): AutomationSettings {
     autoComplete: { ...d.autoComplete, ...s.autoComplete },
     jiraSync: { ...d.jiraSync, ...s.jiraSync },
     codeCheck: { ...d.codeCheck, ...s.codeCheck },
+    testFailures: { ...d.testFailures, ...s.testFailures },
   } as AutomationSettings
 }

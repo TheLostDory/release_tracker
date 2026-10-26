@@ -66,3 +66,19 @@ export function useDismissJenkinsStart(releaseId: string) {
   const qc = useQueryClient()
   return useMutation({ mutationFn: api.dismissJenkinsStart, onSuccess: () => void qc.invalidateQueries({ queryKey: startKeys(releaseId) }) })
 }
+
+// --- Failed tests → Jira bugs --------------------------------------------------------------
+
+export function useTestAnalyses(releaseId: string) {
+  return useQuery({
+    queryKey: ['test-analyses', releaseId],
+    queryFn: () => api.listTestAnalyses(releaseId),
+    // While a report is being read, check again every 5 s.
+    refetchInterval: (q) => (q.state.data?.some((a) => a.state === 'pending') ? 5_000 : false),
+  })
+}
+
+export function useAnalyzeRun(releaseId: string) {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: api.analyzeRun, onSettled: () => void qc.invalidateQueries({ queryKey: ['test-analyses', releaseId] }) })
+}

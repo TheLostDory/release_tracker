@@ -2,6 +2,7 @@ import type { Config } from '../config.js'
 import { decrypt } from '../crypto.js'
 import type { Db } from '../db/pool.js'
 import { attachChildren } from './children.js'
+import { processTestAnalyses } from './test-analysis.js'
 import { cached } from '../integrations/cache.js'
 import { githubBranchExists, type GitHubConnection } from '../integrations/github.js'
 import { jenkinsBuildTree, jenkinsQueueItem, jenkinsTrigger, type JenkinsConnection } from '../integrations/jenkins.js'
@@ -305,6 +306,7 @@ export function startAutomationWorker(db: Db, config: Config): () => void {
     running = true
     try {
       await processJenkinsStarts(db, config)
+      await processTestAnalyses(db, config)
       if (ticks % 30 === 0) await syncJira(db, config)
       if (ticks % 15 === 0) await checkAutoComplete(db, config)
       if (ticks % 45 === 0) await runBackgroundCodeChecks(db, config)

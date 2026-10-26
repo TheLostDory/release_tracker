@@ -5,7 +5,10 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { ReportType } from '@/types/domain'
 import type { FollowedBuild, RunPurpose } from './api'
+import type { TestAnalysis } from '@/features/automation/api'
+import { FailedTests } from '@/features/automation/failed-tests'
 import { JenkinsStarts } from '@/features/automation/jenkins-starts'
+import { useTestAnalyses } from '@/features/automation/queries'
 import { FollowedCard, FollowForm } from './followed-builds-section'
 import { useConnected, useFollowedBuilds } from './queries'
 
@@ -35,6 +38,7 @@ export function AutomatedJobsPanel({
 }) {
   const { jenkins } = useConnected(projectId)
   const { data: runs = [], isLoading } = useFollowedBuilds(releaseId, !!jenkins)
+  const { data: analyses = [] } = useTestAnalyses(releaseId)
   const [addingOther, setAddingOther] = useState(false)
 
   if (!jenkins) {
@@ -68,6 +72,7 @@ export function AutomatedJobsPanel({
             purpose={slot.purpose}
             run={runs.find((r) => r.purpose === slot.purpose)}
             parent={runs.find((p) => p.id === runs.find((r) => r.purpose === slot.purpose)?.parent_run_id)}
+            analysis={analyses.find((a) => a.run_id === runs.find((r) => r.purpose === slot.purpose)?.id)}
             canEdit={canEdit}
           />
         ))}
@@ -101,6 +106,7 @@ function Slot({
   purpose,
   run,
   parent,
+  analysis,
   canEdit,
 }: {
   releaseId: string
@@ -109,6 +115,8 @@ function Slot({
   run: FollowedBuild | undefined
   /** The parent run that started it, if any. */
   parent?: FollowedBuild
+  /** Failed tests of its report and their Jira bugs. */
+  analysis?: TestAnalysis
   canEdit: boolean
 }) {
   const [replacing, setReplacing] = useState(false)
@@ -122,6 +130,7 @@ function Slot({
           heading={label}
           note={parent ? `Started by ${parent.status?.name ?? `${parent.job_path} #${parent.build_number}`}` : undefined}
         />
+        <FailedTests releaseId={releaseId} runId={run.id} analysis={analysis} canEdit={canEdit} />
         {canEdit && (
           <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setReplacing(true)}>
             Replace with a new run…
