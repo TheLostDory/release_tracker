@@ -21,6 +21,8 @@ interface DueAnalysis {
   automation: unknown
   /** A report link pasted for this run. */
   report_url: string | null
+  /** The link on the release's report card for this kind of run (Reports step). */
+  card_report_url: string | null
   jenkins_base_url: string
   jenkins_username: string | null
   jenkins_secret: string
@@ -124,8 +126,15 @@ export async function readFailedTests(jenkins: JenkinsConnection, url: string, h
   return byName(found)
 }
 
+/** Why a link can't be used: it must be on the connected Jenkins (its credentials go nowhere else). */
+function offJenkins(link: string, jenkins: JenkinsConnection): string | null {
+  const host = new URL(link).host
+  const jenkinsHost = new URL(jenkins.baseUrl).host
+  return host === jenkinsHost ? null : `it is on ${host}, but the connected Jenkins is ${jenkinsHost} (Settings → Integrations → Jenkins)`
+}
+
 /**
- * The run's report: a link pasted for it, its .html artifact, the project's
+ * The run's report: a link pasted for it, the release's report card link, its .html artifact, the project's
  * path for that kind of run, HTML Publisher's "HTML_20Report/" (the build's,
  * then the job's latest), or a report page linked on the build — followed
  * into the frame HTML Publisher wraps it in. Returns the page and what was tried.
@@ -149,11 +158,16 @@ async function findReport(jenkins: JenkinsConnection, a: DueAnalysis, reportPath
     }
   }
 
-  if (a.report_url) {
-    // A pasted link must be on Jenkins (its frame may lead to Jenkins' resource address).
-    if (new URL(a.report_url).host !== new URL(jenkins.baseUrl).host) tried.push('the pasted link is not on the connected Jenkins')
+  // Links given by hand must be on Jenkins (their frame may lead to Jenkins' resource address).
+  const given = [
+    { link: a.report_url, label: 'the pasted link' },
+    { link: a.card_report_url, label: 'the report card link' },
+  ].filter((g): g is { link: string; label: string } => !!g.link && g.link !== buildUrl && g.link !== a.status?.reportUrl)
+  for (const g of given.filter((x, i) => given.findIndex((y) => y.link === x.link) === i)) {
+    const why = offJenkins(g.link, jenkins)
+    if (why) tried.push(`${g.label} ${g.link}: ${why}`)
     else {
-      const r = await read(a.report_url, 'the pasted link')
+      const r = await read(g.link, `${g.label} ${g.link}`)
       if (r) return { ...r, tried }
     }
   }

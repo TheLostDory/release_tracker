@@ -178,4 +178,27 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
     expect(how).toMatch(/Export spec \(script export\): 1 failed scenario found \(page incomplete: the connection closed after 0\.\d MB\)/)
     expect(how).toMatch(/Search spec \(script search\): couldn't be read \(.*\), listed by the spec name/)
   })
+
+  it("uses the link on the release's HIT report card, and says why a link on another server can't be used", async () => {
+    const c = await owner()
+    const release = (await c.post('/api/releases', { project_id: projectId, name: 'RC_CARD', version: '12.9.0', planned_deployment_date: '2031-05-29' })).body
+    jenkins.jobs.get('perf/load-test')!.push({ number: 80, result: 'FAILURE', building: false })
+    const run = (await c.post(`/api/releases/${release.id}/jenkins/followed`, { url: `${jenkins.url}/job/perf/job/load-test/80/`, purpose: 'HIT' })).body
+    await process(release.id)
+    expect((await c.get(`/api/releases/${release.id}/test-analyses`)).body[0].state).toBe('failed')
+
+    // Elsewhere: refused, with both addresses.
+    await c.post(`/api/jenkins/followed/${run.id}/analyze`, { reportUrl: 'https://reports.example.com/hit/index.html' })
+    const [refused] = (await c.get(`/api/releases/${release.id}/test-analyses`)).body
+    expect(refused.error).toContain(`the pasted link https://reports.example.com/hit/index.html: it is on reports.example.com, but the connected Jenkins is ${new URL(jenkins.url).host}`)
+
+    // The report card's link (Reports step) is checked as soon as it's set.
+    const card = (await c.get(`/api/releases/${release.id}`)).body.reports.find((r: any) => r.report_type === 'HIT')
+    expect((await c.patch(`/api/reports/${card.id}`, { report_url: `${jenkins.url}/job/qa/job/gauge-hit/5/HTML_20Report/` })).status).toBe(204)
+    expect((await c.get(`/api/releases/${release.id}/test-analyses`)).body[0].state).toBe('pending')
+    await process(release.id)
+    const [found] = (await c.get(`/api/releases/${release.id}/test-analyses`)).body
+    expect(found.state).toBe('done')
+    expect(found.result.failedTests.map((t: any) => t.script)).toEqual(['TC_101', 'TC_102'])
+  })
 })
