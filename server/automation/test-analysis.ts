@@ -7,7 +7,7 @@ import { OutboundError } from '../integrations/outbound.js'
 import { automationSettings } from './settings.js'
 import { findBugsForTests } from './test-failures.js'
 import { failedFromGaugeResult, failedFromScript, failedScenariosOnSpecPage, failedSpecs, inlineScripts, isGaugeReport, scriptSources, specCounts } from './gauge.js'
-import { byName, extractFailedTests, framedReport, reportLinksFromBuildPage, textOf, type FailedTestRef } from './test-report.js'
+import { byName, extractFailedTests, framedReport, reportLinksFromBuildPage, statedFailures, textOf, type FailedTestRef } from './test-report.js'
 
 interface DueAnalysis {
   run_id: string
@@ -44,6 +44,19 @@ const MAX_SPEC_PAGES = 30
  * with its script and ID tags); any other report with the common layouts.
  */
 export async function readFailedTests(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null, how: string[] = []): Promise<FailedTestRef[]> {
+  const found = await readFailedTestsAsIs(jenkins, url, html, pattern, how)
+  if (pattern || !found.length) return found
+  // The report's own count wins: "Failed 0" means what looked failed (a filter, a legend…) wasn't.
+  const stated = statedFailures(html)
+  if (stated === 0) {
+    how.push(`The report says 0 failed, so the ${found.length} item${found.length === 1 ? '' : 's'} that looked failed were ignored (${found.slice(0, 5).map((t) => t.name).join(', ')}${found.length > 5 ? '…' : ''}).`)
+    return []
+  }
+  if (stated !== null) how.push(`The report states ${stated} failed.`)
+  return found
+}
+
+async function readFailedTestsAsIs(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null, how: string[]): Promise<FailedTestRef[]> {
   const title = textOf(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '')
   const visible = textOf(html.replace(/<title\b[\s\S]*?<\/title>/i, '')).slice(0, 160)
   how.push(`Read ${url}${title ? ` ("${title}")` : ''}, ${Math.round(html.length / 1024)} KB. Text starts: "${visible || '(no visible text)'}"`)
@@ -229,7 +242,8 @@ export async function processTestAnalyses(db: Db, config: Config, releaseId?: st
       }
       const reportUrl = report.url
       const html = report.html!
-      const failed = await readFailedTests(jenkins, reportUrl, html, settings.failedPattern || null)
+      const how: string[] = []
+      const failed = await readFailedTests(jenkins, reportUrl, html, settings.failedPattern || null, how)
       const notes: string[] = []
       let tests = failed.map((t) => ({ ...t, bugs: [] as unknown[] }))
       if (failed.length && a.jira_base_url && a.jira_secret) {
@@ -246,7 +260,7 @@ export async function processTestAnalyses(db: Db, config: Config, releaseId?: st
       } else if (failed.length) {
         notes.push('Jira is not connected, so bugs weren’t looked up.')
       }
-      const result = { reportUrl, runResult: a.status?.result ?? null, failedTests: tests, notes }
+      const result = { reportUrl, runResult: a.status?.result ?? null, failedTests: tests, notes, how }
       await db.query("select test_analysis_save($1, 'done', $2, null)", [a.run_id, JSON.stringify(result)])
       out.done++
     } catch (err) {

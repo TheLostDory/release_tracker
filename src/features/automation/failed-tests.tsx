@@ -66,8 +66,11 @@ export function FailedTests({ releaseId, runId, analysis, canEdit }: { releaseId
   const linked = tests.filter((t) => t.bugs.length > 0).length
   if (tests.length === 0) {
     return (
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        No failed tests in the report. {again}
+      <div className="space-y-1 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2">
+          No failed tests in the report. {again}
+        </div>
+        <HowRead how={analysis.result?.how} />
       </div>
     )
   }
@@ -106,9 +109,29 @@ export function FailedTests({ releaseId, runId, analysis, canEdit }: { releaseId
               {n}
             </li>
           ))}
+          <li>
+            <HowRead how={analysis.result?.how} />
+          </li>
         </ul>
       )}
     </div>
+  )
+}
+
+/** The steps the report was read with (to see why a test was, or wasn't, taken as failed). */
+function HowRead({ how }: { how: string[] | undefined }) {
+  if (!how?.length) return null
+  return (
+    <details>
+      <summary className="cursor-pointer text-muted-foreground">How the report was read</summary>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+        {how.map((line, i) => (
+          <li key={i} className="break-all">
+            {line}
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 

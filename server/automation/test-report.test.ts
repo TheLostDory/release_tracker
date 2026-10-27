@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractFailedTests, framedReport, keysInTestName, reportLinksFromBuildPage, searchPhrase } from './test-report.js'
+import { extractFailedTests, framedReport, keysInTestName, reportLinksFromBuildPage, searchPhrase, statedFailures } from './test-report.js'
 
 describe('extractFailedTests', () => {
   it('reads failed rows of a results table, skipping passed rows and headers', () => {
@@ -75,5 +75,16 @@ describe('finding the report on the build page', () => {
     expect(framedReport(wrapper, 'https://ci/job/x/5/HTML_20Report/')).toBe('https://ci/job/x/5/HTML_20Report/index.html')
     expect(framedReport('<iframe name="r"></iframe><a target="r" href="specs/a.html">a</a>', 'https://ci/r/')).toBe('https://ci/r/specs/a.html')
     expect(framedReport('<iframe></iframe><script>var tabs = ["*zip*/r.zip", "report.html"]</script>', 'https://ci/r/')).toBe('https://ci/r/report.html')
+  })
+})
+
+describe('the failures a report states', () => {
+  it('reads counts like "Failed: 0", "3 failed", or a filter with its count', () => {
+    expect(statedFailures('<div>Passed: 12</div><div>Failed: 0</div><div>Skipped: 1</div>')).toBe(0)
+    expect(statedFailures('<p>15 passed, 3 failed</p>')).toBe(3)
+    expect(statedFailures('<ul><li class="fail spec-filter"><span>0</span><div>Failed</div></li><li class="pass"><span>8</span><div>Passed</div></li></ul>')).toBe(0)
+    expect(statedFailures('<table><tr><th>Failures</th></tr><tr><td>2</td></tr></table>')).toBe(2)
+    expect(statedFailures('<h1>Checkout</h1><p>Took 12 s</p>')).toBeNull()
+    expect(statedFailures('<p>Failed 2.5% of requests</p>')).toBeNull()
   })
 })

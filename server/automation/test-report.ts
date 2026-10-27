@@ -89,6 +89,24 @@ export function extractFailedTests(html: string, pattern?: string | null): strin
 }
 
 /**
+ * How many failures the report says it has ("Failed: 0", "3 failed",
+ * "Failures 2"…): the largest count it states, or null when it states none.
+ */
+export function statedFailures(html: string): number | null {
+  const text = linesOf(html)
+  const word = String.raw`\b(?:failed|failures?|failing)\b`
+  const counts = [
+    // "Failed: 0", "Failures (2)"
+    ...text.matchAll(new RegExp(String.raw`${word}[ \t]*(?:[:=(]|\bcount\b)?[ \t]*(\d+)(?![\d.%])`, 'gi')),
+    // "3 failed", "0Failed" (a count beside its label)
+    ...text.matchAll(new RegExp(String.raw`(?<![\w.])(\d+)[ \t]*(?:failed|failures?|failing)\b`, 'gi')),
+    // A label with its count alone on the next line (a one-column table).
+    ...text.matchAll(new RegExp(String.raw`${word}[ \t]*:?[ \t]*\n[ \t]*(\d+)[ \t]*(?=\n|$)`, 'gi')),
+  ].map((m) => Number(m[1]))
+  return counts.length ? Math.max(...counts) : null
+}
+
+/**
  * Jira keys written in a test name: ABC-123, and the underscore form test
  * names use (test_login_ABC_123). The project's own key in any case; other
  * keys only in upper case.

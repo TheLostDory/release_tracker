@@ -82,7 +82,7 @@ export interface FailedTestRef {
 export interface TestAnalysis {
   run_id: string
   state: 'pending' | 'done' | 'failed'
-  result: { reportUrl: string; runResult: string | null; failedTests: (FailedTestRef & { bugs: FoundBug[] })[]; notes: string[] } | null
+  result: { reportUrl: string; runResult: string | null; failedTests: (FailedTestRef & { bugs: FoundBug[] })[]; notes: string[]; how?: string[] } | null
   error: string | null
   analyzed_at: string | null
 }
