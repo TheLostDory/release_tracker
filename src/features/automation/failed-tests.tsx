@@ -7,6 +7,7 @@ import { CATEGORY } from '@/features/integrations/jira-status'
 import { safeHttpUrl } from '@/lib/safe-url'
 import { cn } from '@/lib/utils'
 import type { FailedTestRef, FoundBug, TestAnalysis } from './api'
+import { byStatus } from './bug-order'
 import { useAnalyzeRun } from './queries'
 
 /** Under a HIT / Load Test run: its failed tests and the Jira bugs linked to each. */
@@ -93,7 +94,7 @@ export function FailedTests({ releaseId, runId, analysis, canEdit }: { releaseId
                 <span className="ml-2 text-amber-800 dark:text-amber-300">no bug found</span>
               ) : (
                 <ul className="mt-0.5 space-y-0.5 pl-3">
-                  {t.bugs.map((b) => (
+                  {byStatus(t.bugs).map((b) => (
                     <BugLine key={b.key} bug={b} />
                   ))}
                 </ul>
