@@ -80,6 +80,8 @@ export const automationSchema = z.strictObject({
   codeCheck: z.strictObject({
     /** Re-run Code vs Jira hourly for open releases (Teams alert on new differences). */
     background: z.boolean(),
+    /** Jira issue types compared with the code (Story, Bug…); none = every type. */
+    issueTypes: z.array(z.string().trim().min(1).max(60)).max(20),
   }),
   testFailures: z.strictObject({
     /** When a run of these purposes finishes: failed tests from its report → Jira bugs. */
@@ -119,7 +121,7 @@ export const DEFAULT_AUTOMATION: AutomationSettings = {
   jenkins: { autoStart: false, jobs: [] },
   autoComplete: { rcCreationFromGithub: true, deploymentFromJira: true },
   jiraSync: { importVersions: false, syncDates: true },
-  codeCheck: { background: true },
+  codeCheck: { background: true, issueTypes: [] },
   testFailures: {
     enabled: true,
     purposes: ['HIT', 'LOAD_TEST'],

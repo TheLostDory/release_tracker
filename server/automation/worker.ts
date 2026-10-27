@@ -2,6 +2,7 @@ import type { Config } from '../config.js'
 import { decrypt } from '../crypto.js'
 import type { Db } from '../db/pool.js'
 import { attachChildren } from './children.js'
+import { automationSettings } from './settings.js'
 import { processTestAnalyses } from './test-analysis.js'
 import { cached } from '../integrations/cache.js'
 import { githubBranchExists, type GitHubConnection } from '../integrations/github.js'
@@ -250,6 +251,7 @@ interface CodeTarget {
   gh_secret: string
   gh_ca: string | null
   gh_settings: IntegrationRow['settings']
+  automation: unknown
   jira_id: string | null
   jira_base_url: string | null
   jira_auth: JiraAuth | null
@@ -285,7 +287,7 @@ export async function runBackgroundCodeChecks(db: Db, config: Config, projectId?
         t.jira_id && t.jira_base_url && t.jira_secret
           ? { row: row('JIRA', t.jira_id, t.jira_base_url, t.jira_ca, t.jira_settings ?? {}, t.jira_auth!, t.jira_username), secret: decrypt(t.jira_secret, key) }
           : null
-      const { summary } = await runComparison({ release: { id: t.release_id, name: t.name, version: t.version, jira_version_id: t.jira_version_id, jira_version_name: t.jira_version_name }, refs: t.refs, gh, jira, fresh: true, lookups: false })
+      const { summary } = await runComparison({ release: { id: t.release_id, name: t.name, version: t.version, jira_version_id: t.jira_version_id, jira_version_name: t.jira_version_name }, refs: t.refs, gh, jira, fresh: true, lookups: false, issueTypes: automationSettings(t.automation).codeCheck.issueTypes })
       await db.query('select record_code_check($1, $2)', [t.release_id, JSON.stringify(summary)])
       checked++
     } catch (err) {

@@ -105,6 +105,26 @@ describe.skipIf(remote)('code comparison', () => {
     expect(github.calls.filter((u) => u.includes('/compare/')).length).toBeGreaterThan(2)
   })
 
+  it('compares only the chosen Jira issue types', async () => {
+    const c = await owner()
+    const current = (await c.get(`/api/releases?projectId=${projectId}`)).body.find((x: any) => x.version === '1.4.0').id
+    const settings = (await c.get(`/api/projects/${projectId}/automation`)).body
+    expect(settings.codeCheck).toEqual({ background: true, issueTypes: [] })
+    expect((await c.put(`/api/projects/${projectId}/automation`, { ...settings, codeCheck: { ...settings.codeCheck, issueTypes: ['bug'] } })).status).toBe(204)
+
+    const cmp = (await c.get(`/api/releases/${current}/code-compare?refresh=true`)).body
+    // ABC-1 (a Story) is merged and in the version, but not checked; ABC-2 is a Bug.
+    expect(cmp.matched.map((m: any) => m.issue.key)).toEqual(['ABC-2'])
+    expect(cmp.jiraOnly).toHaveLength(49)
+    expect(cmp.jiraOnly.every((i: any) => i.type === 'Bug')).toBe(true)
+    // ABC-155 is a Story planned for 1.5.0: left out; ABC-999 doesn't exist, so its type is unknown: kept.
+    expect(cmp.codeOnly.map((x: any) => x.key)).toEqual(['ABC-999'])
+    expect(cmp.notes).toEqual(['Only bug issues are compared: 100 other issues in the version left out.', '1 merged issue of other types left out (ABC-155).'])
+    expect((await c.get(`/api/releases?projectId=${projectId}`)).body.find((x: any) => x.id === current).code_check).toMatchObject({ jira_only: 49, code_only: 1, matched: 1 })
+
+    await c.put(`/api/projects/${projectId}/automation`, settings)
+  })
+
   it('reports a branch that does not exist, and works without a Jira link', async () => {
     const c = await owner()
     const rel = (await c.post('/api/releases', { project_id: projectId, name: 'Unlinked', version: '2.0.0', planned_deployment_date: '2031-01-01' })).body

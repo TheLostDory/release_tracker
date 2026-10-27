@@ -141,9 +141,16 @@ function AutomationForm({ project, initial, canManage }: { project: Project; ini
         <Block
           title="Code vs Jira in the background"
           enabled={s.codeCheck.background}
-          onToggle={(background) => set('codeCheck', { background })}
+          onToggle={(background) => set('codeCheck', { ...s.codeCheck, background })}
           description="Releases with a comparison set up are re-checked every hour, so the releases list and the dashboard stay current; Teams is told when differences go up (if the Teams notification is on)."
         />
+
+        <Block
+          title="Code vs Jira: issue types to check"
+          description="Only these Jira issue types are compared with what was merged into the RC (on the release page and in the background). Leave empty to compare every type."
+        >
+          <IssueTypesInput value={s.codeCheck.issueTypes} onChange={(issueTypes) => set('codeCheck', { ...s.codeCheck, issueTypes })} />
+        </Block>
 
         <Block
           title="Failed tests → Jira bugs"
@@ -217,6 +224,27 @@ const EMAILS: { step: EmailStep; label: string }[] = [
 ]
 
 /** One automation: a switch (when it can be turned off), what it does, and its options (shown while on). */
+/** Comma-separated issue types, saved when the field is left. */
+function IssueTypesInput({ value, onChange }: { value: string[]; onChange: (types: string[]) => void }) {
+  const [text, setText] = useState(value.join(', '))
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs text-muted-foreground">Issue types (comma-separated), e.g. Story, Bug, Field Bug, Task</span>
+      <Input
+        className="h-8"
+        placeholder="Every type"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          const types = [...new Set(text.split(',').map((t) => t.trim()).filter(Boolean))]
+          setText(types.join(', '))
+          if (types.join('|') !== value.join('|')) onChange(types)
+        }}
+      />
+    </label>
+  )
+}
+
 export function Block({
   title,
   description,

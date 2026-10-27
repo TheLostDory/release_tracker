@@ -11,6 +11,7 @@ import { githubCompare, githubPull, githubWebUrl, isRefName, type GitHubConnecti
 import { jiraIssueVersions, jiraVersionIssues, type JiraIssueVersions } from '../integrations/jira.js'
 import { asHttpError, OutboundError } from '../integrations/outbound.js'
 import { githubConnection, jiraConnection, loadIntegration, type IntegrationRow } from '../integrations/store.js'
+import { automationSettings } from '../automation/settings.js'
 
 const refsBody = z.strictObject({
   refs: z
@@ -86,8 +87,12 @@ export async function runComparison(input: {
   jira: Integration | null
   fresh: boolean
   lookups: boolean
+  /** Jira issue types to compare (none: every type). */
+  issueTypes: string[]
 }) {
   const { release: r, refs, gh, jira, fresh } = input
+  const types = new Set(input.issueTypes.map((t) => t.toLowerCase()))
+  const checked = (type: string) => types.size === 0 || types.has(type.toLowerCase())
   const projectKey = jira?.row.settings.projectKey ?? null
   const notes: string[] = []
 
@@ -114,13 +119,18 @@ export async function runComparison(input: {
     }
   }
 
-  const comparison = compareWithJira(changes, jiraInfo ? issues : [])
+  // Only the chosen issue types: others in the version are left out on both sides.
+  const leftOut = new Set(issues.filter((i) => !checked(i.type)).map((i) => i.key))
+  if (leftOut.size) {
+    notes.push(`Only ${[...input.issueTypes].join(', ')} issues are compared: ${leftOut.size} other issue${leftOut.size === 1 ? '' : 's'} in the version left out.`)
+  }
+  const comparison = compareWithJira(changes, jiraInfo ? issues.filter((i) => !leftOut.has(i.key)) : [])
   // Issues merged but not in this version: where are they planned instead?
-  let codeOnly: Array<{ key: string; changes: Change[]; jira: JiraIssueVersions | null | 'unknown' }> = comparison.codeOnly.map((c) => ({
-    ...c,
-    jira: 'unknown' as const,
-  }))
-  if (input.lookups && jira && jiraInfo) {
+  let codeOnly: Array<{ key: string; changes: Change[]; jira: JiraIssueVersions | null | 'unknown' }> = comparison.codeOnly
+    .filter((c) => !leftOut.has(c.key))
+    .map((c) => ({ ...c, jira: 'unknown' as const }))
+  // The page looks every extra issue up; with chosen types, so does the background check (to know their type).
+  if ((input.lookups || types.size > 0) && jira && jiraInfo) {
     const jc = jiraConnection(jira.row, jira.secret)
     const lookups = codeOnly.slice(0, MAX_KEY_LOOKUPS)
     const found = await mapLimited(lookups, 4, (c) =>
@@ -128,6 +138,12 @@ export async function runComparison(input: {
     )
     codeOnly = codeOnly.map((c, i) => (i < found.length ? { ...c, jira: found[i]! } : c))
     if (comparison.codeOnly.length > MAX_KEY_LOOKUPS) notes.push(`Only the first ${MAX_KEY_LOOKUPS} extra issues were looked up in Jira.`)
+    // Merged issues of other types aren't differences either.
+    const otherType = codeOnly.filter((c) => c.jira && c.jira !== 'unknown' && !checked(c.jira.type))
+    if (otherType.length) {
+      codeOnly = codeOnly.filter((c) => !otherType.includes(c))
+      notes.push(`${otherType.length} merged issue${otherType.length === 1 ? '' : 's'} of other types left out (${otherType.slice(0, 5).map((c) => c.key).join(', ')}${otherType.length > 5 ? '…' : ''}).`)
+    }
   }
 
   const repoErrors = repos.filter((x) => x.error).map((x) => `${x.repo}: ${x.error}`)
@@ -235,7 +251,9 @@ export function codeCompareRoutes(db: Db, config: Config) {
       ).rows
       if (refs.length === 0) throw new HttpError(409, 'Choose the RC branch or tag to compare first.', 'not_configured')
       const jira = await optionalIntegration(tx, config, r.project_id, 'JIRA')
-      const { result, summary } = await runComparison({ release: r, refs, gh, jira, fresh, lookups: true })
+      const automation = (await tx.query<{ automation: unknown }>('select automation from projects where id = $1', [r.project_id])).rows[0]?.automation
+      const { issueTypes } = automationSettings(automation).codeCheck
+      const { result, summary } = await runComparison({ release: r, refs, gh, jira, fresh, lookups: true, issueTypes })
       // Latest result, for the releases list, the dashboard and Teams alerts.
       await tx.query('select record_code_check($1, $2)', [r.id, JSON.stringify(summary)])
       return result

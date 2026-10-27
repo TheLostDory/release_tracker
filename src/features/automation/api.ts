@@ -15,7 +15,7 @@ export interface AutomationSettings {
   }
   autoComplete: { rcCreationFromGithub: boolean; deploymentFromJira: boolean }
   jiraSync: { importVersions: boolean; syncDates: boolean }
-  codeCheck: { background: boolean }
+  codeCheck: { background: boolean; issueTypes: string[] }
   testFailures: {
     enabled: boolean
     purposes: ('LOAD_TEST' | 'LONGEVITY' | 'HIT')[]
