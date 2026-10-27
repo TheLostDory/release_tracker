@@ -380,6 +380,20 @@ export async function fakeJenkins() {
     res.flushHeaders()
     setTimeout(() => res.socket?.destroy(), 20) // nothing arrives
   })
+  // Failed tests run again by the suite: the final report has 0 failed, yet the page has "failed" marks
+  // (filters, the first attempt's rows).
+  gaugePages['/job/qa/job/gauge-rerun/2/HTML_20Report/index.html'] = `<html><head><title>Gauge Report</title></head><body>
+    <ul class="filters"><li class="fail spec-filter"><span>0</span><div>Failed</div></li><li class="pass spec-filter"><span>2</span><div>Passed</div></li></ul>
+    <table><tr class="failed"><td>Checkout attempt 1</td><td>FAIL</td></tr></table>
+    <ul><a href="specs/TC_101/case.html"><li class='spec-name passed'>Checkout</li></a>
+    <a href="specs/TC_102/case.html"><li class='spec-name passed'>Search</li></a></ul></body></html>`
+  // A failed spec whose page shows a scenario failing, then passing when run again, and one that stayed failed.
+  gaugePages['/job/qa/job/gauge-rerun/3/HTML_20Report/index.html'] = `<html><head><title>Gauge Report</title></head><body><ul>
+    <a href="specs/TC_101/case.html"><li class='spec-name failed'>Checkout</li></a></ul></body></html>`
+  gaugePages['/job/qa/job/gauge-rerun/3/HTML_20Report/specs/TC_101/case.html'] = `<h1>Checkout</h1>
+    <div class="scenario-container failed"><h3>Pay timeout</h3></div>
+    <div class="scenario-container failed"><h3>Refund</h3></div>
+    <div class="scenario-container passed"><h3>Pay timeout</h3></div>`
   // A Gauge report shown through Jenkins' resource address.
   gaugePages['/job/qa/job/gauge-spa/9/HTML_20Report/'] = `<html><body><iframe id="myframe" src="${resource.url}/static/t0k3n/index.html"></iframe></body></html>`
   app.get(/^\/job\/qa\/job\/gauge-/, (req, res, next) => {

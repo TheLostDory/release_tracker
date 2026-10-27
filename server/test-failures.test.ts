@@ -201,4 +201,15 @@ describe.skipIf(remote)('automation: failed tests of HIT / Load Test runs → Ji
     expect(found.state).toBe('done')
     expect(found.result.failedTests.map((t: any) => t.script)).toEqual(['TC_101', 'TC_102'])
   })
+
+  it('only counts what failed in the final report (tests run again and passed are left out)', async () => {
+    const c = await owner()
+    const passed = (await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl: `${jenkins.url}/job/qa/job/gauge-rerun/2/HTML_20Report/index.html` })).body
+    expect(passed.failedTests).toEqual([])
+    expect(passed.how.join('\n')).toMatch(/No spec is marked failed in the final report/)
+
+    const rerun = (await c.post(`/api/projects/${projectId}/test-report/preview`, { reportUrl: `${jenkins.url}/job/qa/job/gauge-rerun/3/HTML_20Report/index.html` })).body
+    expect(rerun.failedTests.map((t: any) => t.name)).toEqual(['Checkout: Refund'])
+    expect(rerun.how.join('\n')).toMatch(/1 test failed and then passed when run again, so it isn't counted: Checkout: Pay timeout/)
+  })
 })

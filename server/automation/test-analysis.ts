@@ -44,7 +44,11 @@ const MAX_SPEC_PAGES = 30
  * with its script and ID tags); any other report with the common layouts.
  */
 export async function readFailedTests(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null, how: string[] = []): Promise<FailedTestRef[]> {
-  const found = await readFailedTestsAsIs(jenkins, url, html, pattern, how)
+  const recovered: string[] = []
+  const found = await readFailedTestsAsIs(jenkins, url, html, pattern, how, recovered)
+  if (recovered.length) {
+    how.push(`${recovered.length} test${recovered.length === 1 ? '' : 's'} failed and then passed when run again, so ${recovered.length === 1 ? "it isn't" : "they aren't"} counted: ${recovered.slice(0, 5).join(', ')}${recovered.length > 5 ? '…' : ''}.`)
+  }
   if (pattern || !found.length) return found
   // The report's own count wins: "Failed 0" means what looked failed (a filter, a legend…) wasn't.
   const stated = statedFailures(html)
@@ -56,7 +60,7 @@ export async function readFailedTests(jenkins: JenkinsConnection, url: string, h
   return found
 }
 
-async function readFailedTestsAsIs(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null, how: string[]): Promise<FailedTestRef[]> {
+async function readFailedTestsAsIs(jenkins: JenkinsConnection, url: string, html: string, pattern: string | null, how: string[], recovered: string[]): Promise<FailedTestRef[]> {
   const title = textOf(/<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '')
   const visible = textOf(html.replace(/<title\b[\s\S]*?<\/title>/i, '')).slice(0, 160)
   how.push(`Read ${url}${title ? ` ("${title}")` : ''}, ${Math.round(html.length / 1024)} KB. Text starts: "${visible || '(no visible text)'}"`)
@@ -66,7 +70,7 @@ async function readFailedTestsAsIs(jenkins: JenkinsConnection, url: string, html
     return byName(found)
   }
   // A page that draws the report in the browser: its data is in a script (inline or loaded).
-  const inline = failedFromScript(inlineScripts(html).join('\n'))
+  const inline = failedFromScript(inlineScripts(html).join('\n'), recovered)
   if (inline) {
     how.push(`Found Gauge's result data inside the page: ${inline.length} failed scenario${inline.length === 1 ? '' : 's'}.`)
     return inline
@@ -75,7 +79,7 @@ async function readFailedTestsAsIs(jenkins: JenkinsConnection, url: string, html
   how.push(scripts.length ? `The page loads ${scripts.length} script file${scripts.length === 1 ? '' : 's'}: ${scripts.map((x) => x.split('/').slice(-2).join('/')).join(', ')}.` : 'The page loads no script files from its own address.')
   for (const script of scripts.slice(0, 10)) {
     const text = await reportGetText(jenkins, script).catch(() => '')
-    const found = text ? failedFromScript(text) : null
+    const found = text ? failedFromScript(text, recovered) : null
     if (found) {
       how.push(`Found Gauge's result data in ${script.split('/').slice(-2).join('/')}: ${found.length} failed scenario${found.length === 1 ? '' : 's'}.`)
       return found
@@ -86,7 +90,7 @@ async function readFailedTestsAsIs(jenkins: JenkinsConnection, url: string, html
     how.push('Recognised a Gauge report.')
     for (const data of ['js/result.js', '../json-report/result.json']) {
       try {
-        const found = failedFromGaugeResult(await reportGetText(jenkins, new URL(data, url).toString()))
+        const found = failedFromGaugeResult(await reportGetText(jenkins, new URL(data, url).toString()), recovered)
         if (found) {
           how.push(`Read Gauge's result data (${data}): ${found.length} failed scenario${found.length === 1 ? '' : 's'}.`)
           return found
@@ -108,19 +112,24 @@ async function readFailedTestsAsIs(jenkins: JenkinsConnection, url: string, html
           return null
         })
         const page = got?.text ?? ''
+        const recoveredBefore = recovered.length
         // The script: the file the spec page was published as (Gauge mirrors specs/TC_1/case.spec as specs/TC_1/case.html).
-        const found = failedScenariosOnSpecPage(page).map((t) => ({
+        const found = failedScenariosOnSpecPage(page, recovered).map((t) => ({
           name: t.name.includes(': ') ? t.name : `${spec.name}: ${t.name}`,
           script: spec.script,
           ids: [...new Set([spec.script, ...t.ids])],
         }))
         const asSpec = (n: string) => ({ name: n, script: spec.script, ids: [spec.script] })
-        const fallback = found.length ? found : extractFailedTests(page).map(asSpec)
+        // Every failure on the page passed when run again: nothing left to count.
+        const allRecovered = !found.length && recovered.length > recoveredBefore
+        const fallback = found.length || allRecovered ? found : extractFailedTests(page, null, recovered).map(asSpec)
         // A failed spec whose scenarios can't be read still counts, by its name.
-        const list = fallback.length ? fallback : [asSpec(spec.name)]
+        const list = fallback.length || allRecovered ? fallback : [asSpec(spec.name)]
         how.push(
           `${spec.name} (script ${spec.script}): ${
-            got
+            allRecovered
+              ? 'its failures passed when run again'
+              : got
               ? `${found.length} failed scenario${found.length === 1 ? '' : 's'} found${found.length ? '' : fallback.length ? ' by layout' : ', listed by the spec name'}${got.partial ? ` (page incomplete: ${got.partial})` : ''}`
               : `couldn't be read (${reason}), listed by the spec name`
           }.`,
@@ -129,10 +138,15 @@ async function readFailedTestsAsIs(jenkins: JenkinsConnection, url: string, html
       }
       return tests
     }
+    // The overview lists the specs and marks none failed: the run's final result has no failures.
+    if (counts.specs > 0) {
+      how.push('No spec is marked failed in the final report, so there are no failed tests (other "failed" marks on the page aren’t tests).')
+      return []
+    }
   } else {
     how.push('Not recognised as a Gauge report.')
   }
-  const found = extractFailedTests(html)
+  const found = extractFailedTests(html, null, recovered)
   const rows = (html.match(/<tr\b/gi) ?? []).length
   const failMarks = (html.match(/\b(fail|failed|failure|error)\b/gi) ?? []).length
   how.push(`Common layouts: ${found.length} failed test${found.length === 1 ? '' : 's'} (the page has ${rows} table rows and mentions fail/error ${failMarks} times).`)

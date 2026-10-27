@@ -1,4 +1,4 @@
-import { decodeEntities, idTags, scriptId, textOf, type FailedTestRef } from './test-report.js'
+import { decodeEntities, idTags, lastAttempts, scriptId, textOf, type FailedTestRef } from './test-report.js'
 
 /**
  * Gauge (gauge.org) HTML reports: an overview page listing the specs, one page
@@ -15,10 +15,6 @@ const name = (spec: string, scenario: string) => (spec ? `${spec.trim()}: ${scen
 /** A failed scenario, searched in Jira by its script and ID tags. */
 function ref(spec: string, scenario: string, script: string | undefined, tags: string[]): FailedTestRef {
   return { name: name(spec, scenario), ...(script ? { script } : {}), ids: [...new Set([...(script ? [script] : []), ...idTags(tags)])] }
-}
-
-const addRef = (out: FailedTestRef[], t: FailedTestRef) => {
-  if (!out.some((x) => x.name === t.name)) out.push(t)
 }
 
 interface GaugeScenario {
@@ -39,7 +35,7 @@ interface GaugeSpec {
  * ("var gaugeExecutionResult = {…}") or json-report's result.json. Null when
  * the text isn't that.
  */
-export function failedFromGaugeResult(text: string): FailedTestRef[] | null {
+export function failedFromGaugeResult(text: string, recovered: string[] = []): FailedTestRef[] | null {
   const start = text.indexOf('{')
   if (start === -1) return null
   let data: { suiteResult?: { specResults?: GaugeSpec[] }; specResults?: GaugeSpec[] }
@@ -50,19 +46,20 @@ export function failedFromGaugeResult(text: string): FailedTestRef[] | null {
   }
   const specs = data.suiteResult?.specResults ?? data.specResults
   if (!Array.isArray(specs)) return null
-  const out: FailedTestRef[] = []
+  const attempts: { test: FailedTestRef; failed: boolean }[] = []
   for (const spec of specs) {
     const script = spec.fileName ? scriptId(spec.fileName) : undefined
     for (const sc of spec.scenarios ?? []) {
+      if (!sc.scenarioHeading) continue
       const failed = sc.failed === true || /^fail/i.test(sc.executionStatus ?? '')
-      if (!failed || !sc.scenarioHeading) continue
       const t = ref(spec.specHeading ?? '', sc.scenarioHeading, script, [...(spec.tags ?? []), ...(sc.tags ?? [])])
       // No file name or ID tags: the spec's name stands for the script.
       if (!t.ids.length && spec.specHeading?.trim()) t.ids.push(spec.specHeading.trim())
-      addRef(out, t)
+      attempts.push({ test: t, failed })
     }
   }
-  return out
+  // A scenario run again (retries, a rerun of the failed ones) counts by its last run.
+  return lastAttempts(attempts, recovered)
 }
 
 const failedClass = /class\s*=\s*["'][^"']*\b(failed|fail|failure)\b[^"']*["']/i
@@ -110,7 +107,7 @@ const scenarioOpen = /<(div|section|li|article)\b([^>]*)>/gi
  * Failed scenarios on a Gauge spec page, named with the spec heading, with
  * the spec file (when the page shows it) and the spec's and scenario's tags.
  */
-export function failedScenariosOnSpecPage(specHtml: string): FailedTestRef[] {
+export function failedScenariosOnSpecPage(specHtml: string, recovered: string[] = []): FailedTestRef[] {
   const specHeading = textOf(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(specHtml)?.[1] ?? '') || textOf(/class\s*=\s*["'][^"']*spec-?(heading|name)[^"']*["'][^>]*>([\s\S]*?)</i.exec(specHtml)?.[2] ?? '')
   // Scenario blocks carry a status (passed / failed / skipped); their parts (scenario-head, scenario_tags) don't.
   const scenarios = [...specHtml.matchAll(scenarioOpen)].filter((m) => /scenario/i.test(m[2] ?? '') && /\b(pass|passed|fail|failed|failure|skip|skipped)\b/i.test(m[2] ?? ''))
@@ -121,11 +118,11 @@ export function failedScenariosOnSpecPage(specHtml: string): FailedTestRef[] {
   const file = /([^\s<>"']+\.(?:spec|cpt|md))(?![\w.])/i.exec(fileBox)?.[1]
   const script = file ? scriptId(file) : undefined
   const specTags = tagsIn(head)
-  const out: FailedTestRef[] = []
-  // Scenario blocks marked failed: their first heading (or an element named like a scenario heading).
+  const attempts: { test: FailedTestRef; failed: boolean }[] = []
+  // Scenario blocks: their first heading (or an element named like a scenario heading), failed or not.
   for (const [i, m] of scenarios.entries()) {
     const attrs = m[2] ?? ''
-    if (!failedClass.test(attrs)) continue
+    const failed = failedClass.test(attrs)
     const start = m.index! + m[0].length
     const after = specHtml.slice(start, Math.min(start + 4000, scenarios[i + 1]?.index ?? Infinity))
     const heading =
@@ -134,9 +131,10 @@ export function failedScenariosOnSpecPage(specHtml: string): FailedTestRef[] {
     const text = textOf(heading ?? '')
     // Tags come right after the heading, before the steps (and their screenshots).
     const own = specHtml.slice(start, Math.min(start + 20_000, scenarios[i + 1]?.index ?? Infinity))
-    if (text) addRef(out, ref(specHeading, text, script, [...specTags, ...tagsIn(own)]))
+    if (text) attempts.push({ test: ref(specHeading, text, script, [...specTags, ...tagsIn(own)]), failed })
   }
-  return out
+  // A scenario shown again (a rerun) counts by its last run.
+  return lastAttempts(attempts, recovered)
 }
 
 /** What the overview page shows: spec links in all, and how many are marked failed (for the settings "Test" tool). */
@@ -174,19 +172,19 @@ export const inlineScripts = (html: string) => [...html.matchAll(/<script\b(?![^
  * Gauge result data anywhere in a script: the object holding "specResults"
  * (assigned to a variable, passed to a function, or plain JSON). Null if none.
  */
-export function failedFromScript(text: string): FailedTestRef[] | null {
+export function failedFromScript(text: string, recovered: string[] = []): FailedTestRef[] | null {
   const at = text.search(/["']?specResults["']?\s*:/)
   if (at === -1) return null
   // Walk back to each "{" before it and try the balanced object from there (outermost first).
   for (let start = text.lastIndexOf('{', at); start !== -1; start = text.lastIndexOf('{', start - 1)) {
     const end = matchingBrace(text, start)
     if (end === -1) continue
-    const found = failedFromGaugeResult(text.slice(start, end + 1))
+    const found = failedFromGaugeResult(text.slice(start, end + 1), recovered)
     if (found) {
       // Prefer the object that also has suiteResult around it, if any.
       const outer = text.lastIndexOf('{', start - 1)
       if (outer !== -1 && matchingBrace(text, outer) !== -1) {
-        const wider = failedFromGaugeResult(text.slice(outer, matchingBrace(text, outer) + 1))
+        const wider = failedFromGaugeResult(text.slice(outer, matchingBrace(text, outer) + 1), recovered)
         if (wider && wider.length >= found.length) return wider
       }
       return found

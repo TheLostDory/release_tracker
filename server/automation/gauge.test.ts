@@ -88,4 +88,16 @@ describe('Gauge reports', () => {
       { url: 'https://ci/r/specs/export_csv.html', name: 'Export', script: 'export_csv' },
     ])
   })
+
+  it('counts a scenario run again by its last run', () => {
+    const recovered: string[] = []
+    const data = JSON.stringify({
+      specResults: [
+        { specHeading: 'Pay', scenarios: [{ scenarioHeading: 'Card', executionStatus: 'fail' }, { scenarioHeading: 'Cash', executionStatus: 'fail' }] },
+        { specHeading: 'Pay', scenarios: [{ scenarioHeading: 'Card', executionStatus: 'pass' }] }, // the rerun of the failed ones
+      ],
+    })
+    expect(names(failedFromGaugeResult(data, recovered))).toEqual(['Pay: Cash'])
+    expect(recovered).toEqual(['Pay: Card'])
+  })
 })

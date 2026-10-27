@@ -46,7 +46,7 @@ const MAX_TESTS = 100
  * the name) only that is used; otherwise: table rows marked failed, then
  * elements with a "fail"/"error" class, then lines like "FAILED: name".
  */
-export function extractFailedTests(html: string, pattern?: string | null): string[] {
+export function extractFailedTests(html: string, pattern?: string | null, recovered: string[] = []): string[] {
   const found: string[] = []
   const add = (raw: string | undefined) => {
     const name = (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
@@ -59,16 +59,22 @@ export function extractFailedTests(html: string, pattern?: string | null): strin
     return found.slice(0, MAX_TESTS)
   }
 
-  // 1. Table rows with a failed status (a cell saying FAIL…, or a "fail" class on the row/cell).
+  // 1. Table rows with a failed status (a cell saying FAIL…, or a "fail" class on the row/cell);
+  //    a test listed again with a pass (rerun) counts by its last row.
+  const rows: { test: { name: string }; failed: boolean }[] = []
+  const nameOf = (raw: string | undefined) => (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
   for (const row of html.matchAll(/<tr\b([^>]*)>([\s\S]*?)<\/tr>/gi)) {
     const rowAttrs = row[1] ?? ''
     const cells = [...row[2]!.matchAll(/<t([dh])\b([^>]*)>([\s\S]*?)<\/t[dh]>/gi)].map((c) => ({ th: c[1]!.toLowerCase() === 'h', attrs: c[2] ?? '', text: textOf(c[3]!) }))
     if (cells.length === 0 || cells.every((c) => c.th)) continue
     const failClass = /class\s*=\s*["'][^"']*\b(fail|failed|failure|error)\b/i
     const failed = failClass.test(rowAttrs) || cells.some((c) => FAIL_WORD.test(c.text) || (failClass.test(c.attrs) && !c.text))
-    if (!failed) continue
-    add(cells.find((c) => !NOT_A_NAME.test(c.text) && !NUMERIC.test(c.text) && c.text.length >= 2)?.text)
+    const passed = !failed && (/class\s*=\s*["'][^"']*\b(pass|passed|success|ok)\b/i.test(rowAttrs) || cells.some((c) => /^(pass|passed|ok|success|✓|✔)$/i.test(c.text)))
+    if (!failed && !passed) continue
+    const name = nameOf(cells.find((c) => !NOT_A_NAME.test(c.text) && !NUMERIC.test(c.text) && c.text.length >= 2)?.text)
+    if (name) rows.push({ test: { name }, failed })
   }
+  for (const t of lastAttempts(rows, recovered)) add(t.name)
   if (found.length) return found.slice(0, MAX_TESTS)
 
   // 2. Elements whose class says failed (lists, cards…): their first line of text.
@@ -129,6 +135,22 @@ export interface FailedTestRef {
   script?: string
   /** Searched in Jira as written: the script, and tags that look like test IDs. None: searched by the name. */
   ids: string[]
+}
+
+/**
+ * Tests that are failed in the end: a test run again (a retry, a rerun of
+ * the failed ones) counts by its last attempt. `recovered` gets the tests
+ * that failed first and then passed.
+ */
+export function lastAttempts<T extends { name: string }>(attempts: { test: T; failed: boolean }[], recovered: string[] = []): T[] {
+  const last = new Map<string, { test: T; failed: boolean; everFailed: boolean }>()
+  for (const a of attempts) {
+    const before = last.get(a.test.name)
+    // Map keeps the first appearance's order; the value is the latest attempt.
+    last.set(a.test.name, { test: a.failed ? a.test : (before?.test ?? a.test), failed: a.failed, everFailed: a.failed || !!before?.everFailed })
+  }
+  for (const [n, a] of last) if (a.everFailed && !a.failed && !recovered.includes(n)) recovered.push(n)
+  return [...last.values()].filter((a) => a.failed).map((a) => a.test)
 }
 
 /** Tests known by their names only (no script / ID). */

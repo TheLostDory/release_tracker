@@ -88,3 +88,12 @@ describe('the failures a report states', () => {
     expect(statedFailures('<p>Failed 2.5% of requests</p>')).toBeNull()
   })
 })
+
+describe('tests run again', () => {
+  it('a table row failing, then the same test passing, is not a failure', () => {
+    const recovered: string[] = []
+    const html = '<table><tr><td>login_ok</td><td>FAIL</td></tr><tr><td>export_csv</td><td>FAIL</td></tr><tr><td>login_ok</td><td>PASS</td></tr></table>'
+    expect(extractFailedTests(html, null, recovered)).toEqual(['export_csv'])
+    expect(recovered).toEqual(['login_ok'])
+  })
+})
